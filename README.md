@@ -18,9 +18,11 @@ platform (the repo itself is agent-authored, from schema to this README).
 - **Semantic search** — NVIDIA embeddings + LLM reranking; live plugin results
   are merged into the candidate pool *before* reranking so they compete on
   relevance instead of being appended to the tail.
-- **Live plugins** — uniform `search(query, limit)` plugins (apis.io, Apify,
-  Smithery, HF Spaces, Google APIs directory, marketplace) with polite pacing,
-  Retry-After handling, and never-persist semantics.
+- **Live plugins** — ALL live sources are uniform `search(query, limit)` plugins
+  (apis.io, marketplace, Smithery, Apify, Google APIs directory, HF Spaces)
+  with polite pacing, Retry-After handling, and never-persist semantics: results
+  are fetched per query, merged into the candidate pool before reranking, and
+  never written to the local catalog.
 - **MCP integration** — the search tools are published through a shared MCP
   gateway so any agent can discover and call them on demand.
 - **Junk filtering** — spam detection, near-duplicate suppression, and
@@ -35,6 +37,7 @@ platform (the repo itself is agent-authored, from schema to this README).
 | `schema.py` | SQLite schema (catalog + FTS5 + embeddings + source registry) |
 | `dump_apisguru.py` | APIs.guru catalog ingestion |
 | `apisio_client.py` | apis.io live client (curated + full search) |
+| `plugins/apisio.py` | apis.io live plugin |
 | `embed_catalog.py` / `embed_matrix.py` | Embedding pipeline (NVIDIA) + incremental matrix growth |
 | `rebuild_fts.py` | Rebuild the FTS5 index |
 | `sync_catalog.py` | Scheduled full sync |

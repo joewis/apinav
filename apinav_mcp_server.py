@@ -472,9 +472,9 @@ async def apinav_keyword_search(query: str, limit: int = 10) -> str:
         "description of the API you want, e.g. 'find me an API that checks flight "
         "prices' or 'an API to send SMS'. Embeds the query with NVIDIA "
         "nemotron-3-embed-1b and ranks stored vectors by cosine similarity. "
-        "TRANSPARENTLY ALSO queries live catalog sources in the background, merges the "
-        "live results into the response, persists them to the local database, and "
-        "kicks off embedding for any newly-discovered APIs. limit: max results "
+        "TRANSPARENTLY ALSO queries live catalog plugins in the background and merges "
+        "the live results into the candidate pool before reranking (overlay only — "
+        "never persisted). limit: max results "
         "(default 10). Returns the most semantically relevant APIs with name, "
         "category, pricing, and a similarity score. Use this for fuzzy/intent-"
         "based discovery; use apinav_keyword_search for exact words."
@@ -592,34 +592,23 @@ async def apinav_semantic_search(query: str, limit: int = 10) -> str:
         # All live sources are plugins with a uniform search() shape: per-query
         # overlays — fetched, guarded, links resolved live, merged into the
         # candidate pool BEFORE rerank — never persisted.
-        aio_new = 0
         plugin_nodes = []
+        # ALL live sources are uniform plugins: one polite search() call each,
+        # rows normalized to the apinav node shape with a `source` tag.
         try:
-            import apisio_client as aio
-            seen_aio: set = set()
-            for x in aio.search_curated(query, limit=8):
-                if x.get("id") and x["id"] not in seen_aio:
-                    seen_aio.add(x["id"])
-                    plugin_nodes.append(_node_summary(x))
-            for x in aio.search_full(query, limit=10):
-                if x.get("id") and x["id"] not in seen_aio:
-                    seen_aio.add(x["id"])
-                    plugin_nodes.append(_node_summary(x))
-            aio_new = len(plugin_nodes)
-            live_merged += aio_new
-        except Exception:
-            plugin_nodes = []
-        # remaining plugins: uniform search() shape, one polite call each
-        try:
-            from plugins import smithery, apify, googledisc, hfspace, rapidapi
-            for mod, plug_limit in ((rapidapi, 5), (smithery, 5), (apify, 4), (googledisc, 3), (hfspace, 3)):
+            from plugins import apisio, rapidapi, smithery, apify, googledisc, hfspace
+            for mod, plug_limit in (
+                (apisio, 8), (rapidapi, 5), (smithery, 5),
+                (apify, 4), (googledisc, 3), (hfspace, 3),
+            ):
                 try:
-                    plugin_nodes.extend(mod.search(query, limit=plug_limit))
+                    for n in mod.search(query, limit=plug_limit):
+                        plugin_nodes.append(_node_summary(n))
                 except Exception:
                     continue  # one dead plugin never takes the others down
         except Exception:
             pass
-        live_merged += max(0, len(plugin_nodes) - aio_new)
+        live_merged = len(plugin_nodes)
         if plugin_nodes:
             link_conn = schema.get_conn()
             try:

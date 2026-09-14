@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.db
+*.npy
+embed_ids.json
+cache/
+backups/
+logs/
+# private live-marketplace client (deliberately not published)
+rapidapi_client.py
+marketplace_client.py
+camofox*

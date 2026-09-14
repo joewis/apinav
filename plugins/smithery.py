@@ -1,0 +1,49 @@
+"""Smithery MCP Registry plugin (live overlay, never persisted).
+
+registry.smithery.ai/servers?q=... — open, no auth, JSON, paginated.
+174 curated MCP servers (verified 2026-09-11), quality signals included
+(verified badge, useCount, score). MCP servers are the layer above APIs:
+the result row is annotated with mcp_type='mcp-server' so agents know it
+isn't a REST API. Docs link = homepage (verified present on rows).
+"""
+import sys, os
+sys.path.insert(0, __import__('os').path.dirname(__file__))
+import base
+import json
+
+BASE = "https://registry.smithery.ai"
+SOURCE = "smithery"
+
+
+def search(query: str, limit: int = 5) -> list[dict]:
+    d = base.get(f"{BASE}/servers?q={base.enc(query)}&pageSize={min(limit, 25)}&page=1",
+                 SOURCE)
+    out = []
+    for s in d.get("servers") or []:
+        if s.get("unlisted") or s.get("inactive"):
+            continue
+        out.append(_normalize(s))
+    return out
+
+
+def _normalize(s: dict) -> dict:
+    desc = s.get("description") or ""
+    return {
+        "id": f"smithery:{s.get('qualifiedName') or s.get('id')}",
+        "name": s.get("displayName") or s.get("qualifiedName"),
+        "description": desc,
+        "slugifiedName": s.get("slug") or s.get("qualifiedName"),
+        "pricing": None,
+        "categoryName": "MCP Server",
+        "updatedAt": s.get("createdAt"),
+        # MCP servers expose tools, not REST endpoints; -1 marks 'N/A class'
+        "endpoint_count": -1,
+        "source": SOURCE,
+        "mcp_type": "mcp-server",
+        "author": (s.get("owner") or {}).get("name") if isinstance(s.get("owner"), dict) else s.get("owner"),
+        "use_count": s.get("useCount"),
+        "verified": s.get("verified"),
+        # extras for live link resolution (source_links token: {homepage})
+        "homepage": s.get("homepage"),
+        "humanURL": s.get("homepage"),
+    }

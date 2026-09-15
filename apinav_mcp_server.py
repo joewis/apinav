@@ -642,6 +642,26 @@ async def apinav_semantic_search(query: str, limit: int = 10) -> str:
             finally:
                 link_conn.close()
 
+        # --- 2c. ORGANIC GROWTH: persist novel live rows (Joerg 2026-09-15) --
+        # Live results that passed the gates AND were never seen before are
+        # persisted to the local catalog so it grows during usage. Best-effort:
+        # lock/failure never blocks the query. Re-sights (known ids) are cheap
+        # skips inside ingest.persist_plugin_results.
+        persisted = 0
+        try:
+            import sys as _sys
+            if "/home/carl/apinav" not in _sys.path:
+                _sys.path.insert(0, "/home/carl/apinav")
+            import ingest as _ingest
+            _ps = _ingest.persist_plugin_results(plugin_nodes)
+            persisted = _ps.get("added", 0)
+            if _ps.get("added_ids"):
+                # embed in-line (fast, batches of 32); failure leaves them
+                # un-embedded and invisible to semantic search until backfill
+                _ingest.embed_new_rows(_ps["added_ids"])
+        except Exception:
+            persisted = -1  # signal: persist errored, search unaffected
+
         # --- 3. RERANK LAST: cross-encoder over the merged pool -------------
         t_merge_done = time.time()
         reranked = False
@@ -657,6 +677,7 @@ async def apinav_semantic_search(query: str, limit: int = 10) -> str:
             "results": out,
             "reranked": reranked,
             "live_merged": live_merged,
+            "persisted": persisted,
             "timing_ms": {
                 "embed": round((t_embed - t_start) * 1000),
                 "cosine": round((t_cos - t_embed) * 1000),

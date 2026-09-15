@@ -23,34 +23,40 @@ import schema
 #   'none'             — static snapshot
 KNOWN_SOURCES = [
     {
-        "source": "rapidapi",
-        "refresh_cadence": "weekly",
-        "delta_strategy": "updatedAt-cursor",
-        "drift_notes": "Headless-browser client required (kept private, not in repo); rate-limit aware with Retry-After handling.",
-    },
-    {
-        "source": "apisguru",
-        "refresh_cadence": "weekly",
-        "delta_strategy": "refetch-all",
-        "drift_notes": "list.json is one fetch; two id shapes (domain:Service / plain domain).",
-    },
-    {
         "source": "apisio",
-        "refresh_cadence": "weekly",
-        "delta_strategy": "refetch-all",
-        "drift_notes": "PENDING ONBOARDING. ~133.6k APIs, /api/v1/apis limit=100/page (~2.4s/page). Provider-split inflation (one provider = many single-op API rows). 88% OpenAPI-bearing. Agent-permitted (robots+terms).",
+        "refresh_cadence": "per-query",
+        "delta_strategy": "none",
+        "drift_notes": "Live plugin: curated + full search per query. Agent-permitted (robots+terms).",
+    },
+    {
+        "source": "rapidapi",
+        "refresh_cadence": "per-query",
+        "delta_strategy": "none",
+        "drift_notes": "Live plugin: per-query search via optional local session client; rate-limit aware with Retry-After handling.",
+    },
+    {
+        "source": "smithery",
+        "refresh_cadence": "per-query",
+        "delta_strategy": "none",
+        "drift_notes": "Live plugin: per-query registry search.",
     },
     {
         "source": "apify",
-        "refresh_cadence": "weekly",
-        "delta_strategy": "refetch-all",
-        "drift_notes": "PENDING ONBOARDING. 56,691 Actors, api.apify.com/v2/store, limit<=1000/page. Not REST APIs: execution marketplace (scrapers). Endpoint gate N/A (store row carries categories/pricing/run-stats instead).",
+        "refresh_cadence": "per-query",
+        "delta_strategy": "none",
+        "drift_notes": "Live plugin: per-query store search. Execution marketplace (actors), not REST APIs: endpoint gate N/A.",
     },
     {
-        "source": "publicapis",
-        "refresh_cadence": "weekly",
-        "delta_strategy": "refetch-all",
-        "drift_notes": "PENDING ONBOARDING. 1,773 curated free APIs, one raw README fetch, no specs. Low junk, 1,475 net-new vs DB.",
+        "source": "googledisc",
+        "refresh_cadence": "per-query",
+        "delta_strategy": "none",
+        "drift_notes": "Live plugin: per-query directory search.",
+    },
+    {
+        "source": "hfspace",
+        "refresh_cadence": "per-query",
+        "delta_strategy": "none",
+        "drift_notes": "Live plugin: per-query Spaces search. Demos, not REST APIs: endpoint gate N/A.",
     },
 ]
 

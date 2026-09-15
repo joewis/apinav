@@ -1,10 +1,9 @@
-"""Marketplace catalog plugin (live overlay, never persisted).
+"""Marketplace catalog plugin (live overlay).
 
-Live search over a large commercial API marketplace catalog. One polite
-headless-browser session per query, results normalized to the uniform plugin
-row shape and merged into the candidate pool before reranking. Per the source
-registry contract this source is a per-query overlay only — the ingest client
-is deliberately kept out of this repository.
+Per-query search over a large commercial API directory, via an optional local
+session client. Results are normalized to the uniform plugin row shape and
+merged into the candidate pool before reranking; novel ids are persisted by
+ingest.py (organic growth). No batch jobs: only what a search asks for.
 
 Quality signals: popularity score, latency, success rate (when provided).
 Docs link = source catalog page when resolvable by source_links.

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Organic catalog growth: persist live plugin search results into SQLite.
 
-Joerg-directed change (2026-09-15): live results are still merged into the
-candidate pool per query, but NEW ids (never seen before) are now ALSO
-persisted to the local catalog, so the index grows organically during usage.
-The marketplace ingestion scripts stay private (never disclosed in the repo).
+Joerg-directed change (2026-09-15): live results are merged into the
+candidate pool per query, and NEW ids (never seen before) are ALSO persisted
+to the local catalog, so the index grows organically during usage. There are
+no batch ingestion jobs: plugins fetch only what a search asks for, and
+ingest.py caches what arrives.
 
 Policy (enforced here):
 - Spam gate: the full MCP-server spam battery (buy/verified/gamble/adult/SEO,

@@ -85,7 +85,7 @@ def upsert_api(conn: sqlite3.Connection, api: dict) -> None:
 
     If the node carries an `endpoint_count` (from a detail fetch), it is
     stored; otherwise the existing value is preserved (INSERT OR REPLACE would
-    otherwise reset it to -1 on every re-dump)."""
+    otherwise reset it to -1 on every re-sight)."""
     score = api.get("score") or {}
     user = api.get("user") or {}
     # Preserve existing endpoint_count unless the node explicitly provides one

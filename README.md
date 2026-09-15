@@ -2,58 +2,62 @@
 
 Agent-driven API discovery: a local SQLite catalog of public APIs with keyword
 (FTS5) and semantic (embeddings + LLM rerank) search, exposed to AI agents as
-an MCP (Model Context Protocol) server. Live marketplace and directory sources
-overlay the local index as per-query plugins — fetched, merged into the
-candidate pool before reranking, and **persisted when new**, so the catalog
-grows organically during usage.
+an MCP (Model Context Protocol) server.
+
+The catalog has no bulk ingestion step. Live directory plugins fetch results
+per search query; every result that passes the quality gates is upserted into
+the database, embedded, and immediately searchable — the index grows
+organically during usage.
 
 Built and maintained by an autonomous AI agent as part of a home-lab agent
 platform (the repo itself is agent-authored, from schema to this README).
 
-## What it does
+## Architecture
 
-- **Catalog ingestion** — public catalogs (APIs.guru plus a commercial
-  marketplace via a private headless-browser client not included here) are
-  dumped into a local SQLite database by private ingestion scripts.
-- **Keyword search** — FTS5 full-text search over name/description/category/author.
-- **Semantic search** — NVIDIA embeddings + LLM reranking; live plugin results
-  are merged into the candidate pool *before* reranking so they compete on
-  relevance instead of being appended to the tail.
-- **Live plugins** — ALL live sources are uniform `search(query, limit)` plugins
-  (apis.io, marketplace, Smithery, Apify, Google APIs directory, HF Spaces)
-  with polite pacing, Retry-After handling.
-- **Organic growth** — live results that pass the spam/junk gates and carry an
-  id the catalog has never seen are **persisted to the local database**
-  (`ingest.py`): upsert with provenance (`source` column), NVIDIA-embedded in
-  the same call, FTS5-indexed via triggers. Re-sights are cheap id skips; the
-  index grows organically as agents search, with no bulk re-crawl required.
-- **MCP integration** — the search tools are published through a shared MCP
-  gateway so any agent can discover and call them on demand.
-- **Junk filtering** — spam detection (buy/verified-account/gamble/adult
-  patterns, English + Vietnamese, SEO markers), near-duplicate suppression,
-  and relevance guards run on every merged row — live results only enter the
-  catalog if they pass the same battery.
+1. **Plugins query API sources.** Every live source is a uniform
+   `search(query, limit)` plugin (apis.io, marketplace, Smithery, Apify,
+   Google APIs directory, HF Spaces) — polite pacing, `Retry-After` handling,
+   one dead plugin never takes the others down. No batch jobs, no crawls:
+   plugins only fetch what a search actually asks for.
+2. **Results cached in SQLite.** After live results are merged into the
+   candidate pool for the current query, novel ids (never seen before) are
+   persisted to the local database via `ingest.py` — spam/junk-gated,
+   deduplicated, upserted with per-source provenance in the `source` column.
+   Re-sights are cheap id skips; a locked or failed persist never blocks the
+   query.
+3. **Embeddings for semantic search.** Persisted rows are embedded with
+   NVIDIA `nemotron-3-embed-1b` in the same call (batch of 32) and appended
+   to a numpy vector cache, so they are semantically searchable immediately.
+   FTS5 triggers keep the keyword index current.
+
+## Search workflow
+
+1. **Semantic candidates** — embed the query, rank stored vectors by cosine
+   similarity (numpy matrix fast path), plus an FTS5 pre-pass.
+2. **Live merge** — every plugin runs its per-query `search()` in the
+   background; results are merged into the candidate pool *before* reranking
+   so they compete on relevance instead of being appended to the tail.
+3. **Persist** — novel live rows are written to the database (organic growth).
+4. **Rerank last** — LLM cross-encoder over the merged pool; results are
+   returned with per-source provenance, similarity scores, and doc links.
 
 ## Repo layout
 
 | File | Purpose |
 |---|---|
-| `apinav_mcp_server.py` | MCP server exposing the search tools (merges live plugin results into the candidate pool, then persists novel rows) |
-| `ingest.py` | Organic-growth persistence: spam/junk gates, dedup, upsert + NVIDIA embed + vector-cache append for novel live results |
-| `apinav.py` | Gateway registration helper |
+| `apinav_mcp_server.py` | MCP server: keyword search, semantic search (live merge + persist), live search, record fetch, stats |
+| `ingest.py` | Organic-growth persistence: quality gates, dedup, upsert + NVIDIA embed + vector-cache append for novel live results |
 | `schema.py` | SQLite schema (catalog + FTS5 + embeddings + source registry) |
+| `plugins/` | Live-search plugins (one module per source, uniform `search()` shape) |
+| `plugins/base.py` | Shared plugin plumbing: polite pacing, `RateLimited`/Retry-After |
 | `apisio_client.py` | apis.io live client (curated + full search) |
-| `plugins/apisio.py` | apis.io live plugin |
-| `embed_catalog.py` / `embed_matrix.py` | Embedding pipeline (NVIDIA) + incremental matrix growth |
-| `rebuild_fts.py` | Rebuild the FTS5 index |
-| `keywords.py` | Per-category keyword partitioning for paginated ingestion |
-| `prefilter_spam.py` | Junk filtering |
+| `embed_matrix.py` | Incremental numpy vector cache (append per new embedding) |
+| `embed_catalog.py` | Embedding backfill utility for rows pending vectors |
+| `prefilter_spam.py` | Maintenance utility: remove known junk patterns from the catalog |
 | `source_links.py` | Per-source docs/spec URL resolution |
 | `sources.py` | Source registry: cadence, delta strategy, freshness report |
-| `plugins/` | Live-search plugins (one module per source, uniform shape) |
-
-The catalog-ingestion dump scripts are **not included** in this repository —
-they use private browsing machinery and stay local.
+| `rebuild_fts.py` | Rebuild the FTS5 index after schema changes |
+| `apinav.py` | Gateway registration helper |
 
 ## Plugin contract
 
@@ -72,20 +76,20 @@ def search(query: str, limit: int = 5) -> list[dict]:
   ids among them are persisted by `ingest.py` (idempotent, lock-safe,
   best-effort: a locked or failed persist never blocks the query)
 
+A plugin that needs a non-public client (e.g. a session-based marketplace
+client) loads it as an optional local module named `marketplace_client.py`
+(with `open_tab/close_tab/check_rate_limit/fetch_all`); if it is missing the
+plugin degrades gracefully to an empty result.
+
 ## Requirements
 
 - Python 3.11+
 - `openai`-compatible client for embeddings/rerank — API keys read from the
   environment only (`NVIDIA_API_KEY`, `OPENROUTER_API_KEY`); nothing is hardcoded
 - SQLite with FTS5
-- A headless-browser client for the marketplace source is **not included** in
-  this repository — provide your own module named `marketplace_client.py` (with
-  `open_tab/close_tab/check_rate_limit/fetch_all`) or delete
-  `plugins/rapidapi.py`; the plugin degrades gracefully to an empty result
-  when the client is missing.
 
 ## Status
 
 Personal home-lab project, published as-is. The catalog database and embedding
-matrix are multi-GB build artifacts and are not included — run the ingestion
-scripts (yours to write) to build your own index.
+matrix are multi-GB build artifacts and are not included — they accumulate
+from plugin results as you search.

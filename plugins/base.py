@@ -1,7 +1,7 @@
 """Shared plumbing for live-search plugins: HTTP + RateLimited + pacing.
 
 Joerg's plugin route (2026-09-11): live results enter the candidate pool
-BEFORE the reranker and are never persisted — per-query fetch only.
+BEFORE the reranker; novel results are persisted by ingest.py (organic growth) — per-query fetch only.
 """
 import json
 import time

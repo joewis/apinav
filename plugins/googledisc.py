@@ -1,4 +1,4 @@
-"""Google API Discovery plugin (live overlay, never persisted).
+"""Google API Discovery plugin (live overlay).
 
 www.googleapis.com/discovery/v1/apis — one static directory fetch (531
 official Google APIs, verified 2026-09-11), each item carries title,

@@ -1,4 +1,4 @@
-"""HuggingFace Spaces plugin (live overlay, never persisted).
+"""HuggingFace Spaces plugin (live overlay).
 
 huggingface.co/api/spaces?search=... — open, no auth (verified
 2026-09-11). Spaces are demo apps / hosted models, not REST APIs; rows

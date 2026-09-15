@@ -1,7 +1,7 @@
-"""Apify Store plugin (live overlay, never persisted).
+"""Apify Store plugin (live overlay).
 
 api.apify.com/v2/store?search=... — open, no auth, JSON (verified
-2026-09-11: 5,131 searchable Actors, rich stats). Actors are scrapers /
+2026-09-11: 5,131 searchable Actors, rich stats). Actors are automation /
 execution jobs, NOT REST APIs — rows carry mcp_type='apify-actor' so
 downstream agents annotate them correctly. Quality signal: stats.
 Docs link = actor's store URL built from username/name (stable pattern).

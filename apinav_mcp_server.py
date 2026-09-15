@@ -474,7 +474,7 @@ async def apinav_keyword_search(query: str, limit: int = 10) -> str:
         "nemotron-3-embed-1b and ranks stored vectors by cosine similarity. "
         "TRANSPARENTLY ALSO queries live catalog plugins in the background and merges "
         "the live results into the candidate pool before reranking (overlay only — "
-        "never persisted). limit: max results "
+        "novel results are persisted to the local catalog). limit: max results "
         "(default 10). Returns the most semantically relevant APIs with name, "
         "category, pricing, and a similarity score. Use this for fuzzy/intent-"
         "based discovery; use apinav_keyword_search for exact words."
@@ -586,7 +586,7 @@ async def apinav_semantic_search(query: str, limit: int = 10) -> str:
         # Live search runs BEFORE reranking, so the cross-encoder scores the
         # merged pool — live results compete for top slots on relevance instead
         # of being appended unranked to the tail. All live sources are uniform
-        # plugins (see 2b): per-query overlays, never persisted.
+        # plugins (see 2b): per-query overlays; novel ids are persisted by ingest.py.
         live_merged = 0
         # --- 2b. LIVE PLUGINS -------------------------------------------------
         # All live sources are plugins with a uniform search() shape: per-query

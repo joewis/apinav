@@ -7,11 +7,10 @@ This module wraps it as the second live source for apinav search tools.
 Design (Joerg): apis.io search results are MERGED into the semantic-search
 candidate pool (merge-first / rerank-last pipeline, user-mandated ordering)
 and NEW rows are persisted into the local catalog + embedded — same
-transparent-merge pattern as the live marketplace path, but plain HTTP:
-no CSRF, no Cloudflare, plain HTTP.
+per-query plugin pattern, plain HTTP: no special sessions, no CSRF, no challenges.
 
 Rate-limit contract: plain GETs, paced (SEARCH_DELAY between calls); any 429
-raises RateLimited (shared exception type from plugins/base) so callers handle it the
+raises RateLimited (shared type from plugins/base) so callers handle it the
 same way. Retry-After parsed when present.
 """
 import json

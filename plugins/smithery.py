@@ -1,4 +1,4 @@
-"""Smithery MCP Registry plugin (live overlay, never persisted).
+"""Smithery MCP Registry plugin (live overlay).
 
 registry.smithery.ai/servers?q=... — open, no auth, JSON, paginated.
 174 curated MCP servers (verified 2026-09-11), quality signals included

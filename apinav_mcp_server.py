@@ -1,14 +1,14 @@
 #!/home/carl/mcp-gateway-venv/bin/python
 """MCP server exposing the local multi-source API catalog index (apinav).
 
-Sources: marketplace catalog + APIs.guru (provenance in the `source` column).
+Sources: live directory plugins (provenance in the `source` column).
 
 Tools:
 - apinav_keyword_search: FTS5 keyword search over name/description/category
 - apinav_semantic_search: cosine-similarity semantic search (embeds the query
   with NVIDIA nemotron-3-embed-1b, then ranks stored vectors)
 - apinav_get_api: fetch one API's full record by id or slug
-- apinav_live_search: live marketplace search + merge
+- apinav_live_search: live source search + merge
 - apinav_catalog_stats: counts + freshness
 
 Shared capability for all agents through the gateway. Reads NVIDIA_API_KEY from
@@ -60,7 +60,7 @@ FTS_PREPASS_N = 30
 # the first occurrence (highest cosine, since candidates arrive in cosine
 # order). Distinct APIs that share a name but differ in description survive.
 
-# Dump rows carry <em> highlight tags inside name/category/description
+# Some source results carry <em> highlight tags inside name/category/description
 # (e.g. "<em>Speech</em>2<em>Text</em>"). Strip them before any matching —
 # they break regexes (direction guard) and dedup normalization alike.
 
@@ -252,7 +252,7 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
-# Spam/junk detection: marketplace catalogs are polluted with non-API junk that
+# Spam/junk detection: open catalogs attract non-API junk that
 # embeds to near-identical vectors and drowns out real results in semantic
 # search. We exclude it from ranking (non-destructive: rows are kept).
 #
@@ -358,7 +358,7 @@ def _api_summary(row) -> dict:
 
 
 def _node_summary(node: dict) -> dict:
-    """Summary from a live node dict (marketplace or apis.io REST)."""
+    """Summary from a live node dict (any plugin source)."""
     score = node.get("score") or {}
     user = node.get("user") or {}
     return {
@@ -685,7 +685,7 @@ async def apinav_semantic_search(query: str, limit: int = 10) -> str:
                 "live_merge": round((t_merge_done - t_cand) * 1000),
                 "rerank": round((t_rerank_done - t_merge_done) * 1000),
             },
-            "note": "Live marketplace results were merged into the candidate pool." if live_merged else "No new live APIs found.",
+            "note": "Live source results were merged into the candidate pool." if live_merged else "No new live APIs found.",
         })
     except Exception as e:
         return json.dumps({"error": str(e)})
@@ -727,7 +727,7 @@ async def apinav_get_api(identifier: str) -> str:
 @server.tool(
     name="apinav_live_search",
     description=(
-        "Search the marketplace catalog LIVE (not the local cache) by keyword. "
+        "Search a live API source directly (not the local cache) by keyword. "
         "query: the search terms, e.g. 'flight prices' or 'airline comparison'. "
         "limit: max results to return (default 20). Results are a live overlay "
         "merged into the candidate pool — they are NOT persisted. Returns "

@@ -24,7 +24,7 @@ DEFAULT_SOURCE_LINKS = [
         "url_docs": "{humanURL}",
         "url_spec_json": None,
         "url_spec_yaml": None,
-        "notes": "LIVE OVERLAY (Joerg 2026-09-11: NO apis.io scraping/dump). "
+        "notes": "LIVE OVERLAY (2026-09-11): per-query plugin results only. "
                  "Live summaries carry humanURL/baseURL on the node; the "
                  "semantic-search merge passes a synthetic raw carrying them "
                  "so url_docs resolves per-query. spec URLs would need a "

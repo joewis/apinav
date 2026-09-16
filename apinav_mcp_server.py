@@ -596,10 +596,10 @@ async def apinav_semantic_search(query: str, limit: int = 10) -> str:
         # ALL live sources are uniform plugins: one polite search() call each,
         # rows normalized to the apinav node shape with a `source` tag.
         try:
-            from plugins import apisio, rapidapi, smithery, apify, googledisc, hfspace
+            from plugins import apisio, rapidapi, smithery, apify, googledisc, hfspace, apisguru
             for mod, plug_limit in (
                 (apisio, 8), (rapidapi, 5), (smithery, 5),
-                (apify, 4), (googledisc, 3), (hfspace, 3),
+                (apify, 4), (googledisc, 3), (hfspace, 3), (apisguru, 5),
             ):
                 try:
                     for n in mod.search(query, limit=plug_limit):
@@ -729,17 +729,36 @@ async def apinav_get_api(identifier: str) -> str:
     description=(
         "Search a live API source directly (not the local cache) by keyword. "
         "query: the search terms, e.g. 'flight prices' or 'airline comparison'. "
+        "category: source name — rapidapi, apisio, smithery, apify, googledisc, "
+        "hfspace, or apisguru. Defaults to rapidapi. "
         "limit: max results to return (default 20). Results are a live overlay "
         "merged into the candidate pool — they are NOT persisted. Returns "
         "matching APIs with name, category, pricing, scores, and a live flag."
     ),
 )
 async def apinav_live_search(query: str, category: str | None = None, limit: int = 20) -> str:
+    """Search a live API source directly (not the local cache) by keyword.
+
+    category: source name to query — rapidapi, apisio, smithery, apify,
+              googledisc, hfspace, apisguru. Defaults to rapidapi.
+    """
     try:
-        from plugins import rapidapi
-        nodes = rapidapi.search(query, limit=limit)
+        from plugins import rapidapi, apisio, smithery, apify, googledisc, hfspace, apisguru
+        plugins_by_name = {
+            "rapidapi": rapidapi,
+            "apisio": apisio,
+            "smithery": smithery,
+            "apify": apify,
+            "googledisc": googledisc,
+            "hfspace": hfspace,
+            "apisguru": apisguru,
+        }
+        mod = plugins_by_name.get(category or "rapidapi")
+        if mod is None:
+            return json.dumps({"error": f"unknown live source '{category}'", "live": True})
+        nodes = mod.search(query, limit=limit)
         if not nodes:
-            return json.dumps({"error": f"no live results for '{query}'", "live": True})
+            return json.dumps({"error": f"no live results for '{query}'", "source": category, "live": True})
         out = []
         for n in nodes:
             out.append({

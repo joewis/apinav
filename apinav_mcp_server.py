@@ -166,15 +166,6 @@ def _rerank(query: str, candidates: list[dict]) -> list[dict]:
         # Opposite-direction audio candidates: zero out so the threshold drops them
         if _direction_penalty(query, c) is not None:
             s = 0.0
-        # apis.io curated-rank boost: their /search already ranked this node
-        # for the query (brand-bridge cases like moomoo→Futu where the doc
-        # text can't show the association). Small additive bonus, decaying
-        # by rank: rank0=+0.06 … rank5=+0.01. Capped under the smallest real
-        # OR score (0.27 in benchmarks) so it reorders junk-tail only, never
-        # promotes overlay rows above genuinely-scored real matches.
-        if c.get("aio_rank") is not None:
-            s += 0.06 / (1 + int(c["aio_rank"]))
-            c["aio_boosted"] = True
         c["_rerank_score"] = s
     # Drop weak matches (threshold per backend, set above)
     candidates = [c for c in candidates if c.get("_rerank_score", 0) >= threshold]

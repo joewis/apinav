@@ -10,12 +10,13 @@ Usage:
     python3 sources.py report          # metadata + current row counts
     python3 sources.py set <source> <field> <value>
 """
+import os
 import sqlite3
 import sys
 
 import yaml
 
-sys.path.insert(0, "/home/carl/apinav")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import config
 import schema
 

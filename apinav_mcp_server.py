@@ -24,7 +24,7 @@ import sys
 import time
 import urllib.request
 
-sys.path.insert(0, "/home/carl/apinav")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import config
 import schema
 from spam import is_spam as _is_spam
@@ -543,8 +543,9 @@ async def apinav_semantic_search(query: str, limit: int = 10) -> str:
         persisted = 0
         try:
             import sys as _sys
-            if "/home/carl/apinav" not in _sys.path:
-                _sys.path.insert(0, "/home/carl/apinav")
+            _here = os.path.dirname(os.path.abspath(__file__))
+            if _here not in _sys.path:
+                _sys.path.insert(0, _here)
             import ingest as _ingest
             _ps = _ingest.persist_plugin_results(plugin_nodes)
             persisted = _ps.get("added", 0)

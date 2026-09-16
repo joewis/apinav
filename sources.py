@@ -1,15 +1,15 @@
-"""Source registry for apinav: freshness contract per ingested source.
+"""Source registry for apinav: metadata per source.
 
-One row per source: cadence, last sync, delta strategy, last result.
-Created as a side-table (safe mid-backfill per the SKILL.md pitfall).
-Never ALTERs existing tables.
+With the live-plugin + organic-growth architecture, sources are queried per
+search and novel results are persisted by ingest.py. There are no batch
+"syncs", so this registry only tracks source metadata and current row counts
+(computed live from the catalog).
 
 Usage:
     python3 sources.py init            # create table + register known sources
-    python3 sources.py report          # freshness report to stdout
-    python3 sources.py set <source> <field> <json-or-string-value>
+    python3 sources.py report          # metadata + current row counts
+    python3 sources.py set <source> <field> <value>
 """
-import json
 import sqlite3
 import sys
 
@@ -22,53 +22,29 @@ _CONFIG_PATH = "/home/carl/apinav/sources.yaml"
 
 
 def load_known_sources(path: str = _CONFIG_PATH) -> list[dict]:
-    """Load the source freshness contract from the YAML config."""
+    """Load the source metadata contract from the YAML config."""
     with open(path) as f:
         data = yaml.safe_load(f)
     return data.get("sources", [])
 
 
 def init_registry(conn) -> None:
+    # Migration: old registry had sync/etag/result columns from the batch era.
+    conn.execute("DROP TABLE IF EXISTS source_registry")
     conn.execute(
-        """CREATE TABLE IF NOT EXISTS source_registry (
+        """CREATE TABLE source_registry (
                source TEXT PRIMARY KEY,
                refresh_cadence TEXT,
-               last_full_sync TEXT,
-               last_delta_sync TEXT,
-               delta_strategy TEXT,
-               last_result TEXT,   -- JSON {added,updated,removed,skipped,errors,duration_s}
-               last_etag TEXT,
-               row_count INTEGER,
                drift_notes TEXT
            )"""
     )
     for s in load_known_sources():
         conn.execute(
             """INSERT OR IGNORE INTO source_registry
-               (source, refresh_cadence, delta_strategy, drift_notes)
-               VALUES (?,?,?,?)""",
-            (s["source"], s["refresh_cadence"], s["delta_strategy"], s["drift_notes"]),
+               (source, refresh_cadence, drift_notes)
+               VALUES (?,?,?)""",
+            (s["source"], s["refresh_cadence"], s["drift_notes"]),
         )
-    conn.commit()
-
-
-def mark_full_sync(conn, source: str, result: dict, row_count: int | None = None, etag: str | None = None) -> None:
-    conn.execute(
-        """UPDATE source_registry
-           SET last_full_sync=datetime('now'), last_result=?, row_count=?, last_etag=COALESCE(?, last_etag)
-           WHERE source=?""",
-        (json.dumps(result), row_count, etag, source),
-    )
-    conn.commit()
-
-
-def mark_delta_sync(conn, source: str, result: dict) -> None:
-    conn.execute(
-        """UPDATE source_registry
-           SET last_delta_sync=datetime('now'), last_result=?, row_count=(SELECT COUNT(*) FROM apis WHERE source=?)
-           WHERE source=?""",
-        (json.dumps(result), source),
-    )
     conn.commit()
 
 
@@ -79,30 +55,27 @@ def get(conn, source: str) -> sqlite3.Row | None:
 
 
 def report(conn) -> str:
-    rows = conn.execute("SELECT * FROM source_registry ORDER BY source").fetchall()
-    lines = ["source        cadence  last_full_sync      rows     delta            last result",
-             "-" * 110]
+    rows = conn.execute(
+        """SELECT r.*, COUNT(a.id) AS row_count
+           FROM source_registry r
+           LEFT JOIN apis a ON a.source = r.source
+           GROUP BY r.source
+           ORDER BY r.source"""
+    ).fetchall()
+    lines = [
+        "source        cadence      rows   drift_notes",
+        "-" * 90,
+    ]
     for r in rows:
-        res = {}
-        try:
-            res = json.loads(r["last_result"] or "{}")
-        except Exception:
-            pass
-        res_s = "+{added} ~{updated} -{removed} err={errors}".format(
-            added=res.get("added", 0), updated=res.get("updated", 0),
-            removed=res.get("removed", 0), errors=res.get("errors", 0),
-        ) if res else "never synced"
         lines.append(
-            f"{r['source']:<13} {r['refresh_cadence'] or '?':<8} "
-            f"{r['last_full_sync'] or 'never':<19} "
-            f"{r['row_count'] if r['row_count'] is not None else 'n/a':>7}  "
-            f"{r['delta_strategy'] or '?':<16} {res_s}"
+            f"{r['source']:<13} {r['refresh_cadence'] or '?':<12} "
+            f"{r['row_count'] if r['row_count'] is not None else 0:>6}  "
+            f"{r['drift_notes'] or ''}"
         )
     return "\n".join(lines)
 
 
 if __name__ == "__main__":
-    conn = schema_conn = None
     import schema as _s
     conn = _s.get_conn()
     cmd = sys.argv[1] if len(sys.argv) > 1 else "report"
@@ -113,7 +86,7 @@ if __name__ == "__main__":
         print(report(conn))
     elif cmd == "set" and len(sys.argv) >= 5:
         field, val = sys.argv[3], sys.argv[4]
-        if field not in ("refresh_cadence", "delta_strategy", "drift_notes"):
+        if field not in ("refresh_cadence", "drift_notes"):
             sys.exit(f"field '{field}' not editable here")
         conn.execute(f"UPDATE source_registry SET {field}=? WHERE source=?", (val, sys.argv[2]))
         conn.commit()

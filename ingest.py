@@ -190,14 +190,10 @@ def embed_new_rows(added_ids: list[str]) -> int:
             ).fetchall()
             if not rows:
                 continue
-            texts = []
-            for r in rows:
-                parts = [r["name"] or ""]
-                if r["description"]:
-                    parts.append(r["description"])
-                if r["category"]:
-                    parts.append(r["category"])
-                texts.append("\n".join(parts))
+            # Compose embed text via the shared helper (applies the
+            # MAX_DESC_CHARS truncation that prevents HTTP 400 on huge descs).
+            import embed_matrix
+            texts = [embed_matrix._api_text(dict(r)) for r in rows]
             body = _json.dumps({"model": EMBED_MODEL, "input": texts}).encode()
             req = urllib.request.Request(
                 EMBED_URL,

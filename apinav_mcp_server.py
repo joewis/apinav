@@ -199,6 +199,27 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
+def _fts_keyword_rows(conn, query: str, limit: int, *, min_endpoints: bool = False) -> list:
+    """FTS5 pre-pass over name/desc/category/author, ordered by BM25.
+
+    Shared by apinav_keyword_search (public tool) and the semantic-search
+    candidate pre-pass so the query shape stays in one place. FTS5 treats '-'
+    as a column separator, so hyphenated terms like 'sky-scrapper' are
+    space-normalized to 'sky scrapper' (both tokens then match).
+    """
+    safe_query = query.replace("-", " ").replace("_", " ")
+    ep_clause = "AND a.endpoint_count > 0\n" if min_endpoints else ""
+    return conn.execute(
+        f"""SELECT a.* FROM apis_fts f
+              JOIN apis a ON a.rowid = f.rowid
+              WHERE apis_fts MATCH ?
+                {ep_clause}
+              ORDER BY bm25(apis_fts)
+              LIMIT ?""",
+        (safe_query, limit),
+    ).fetchall()
+
+
 def _api_summary(row) -> dict:
     from plugins import build_links
     d = {
@@ -225,9 +246,14 @@ def _api_summary(row) -> dict:
 
 
 def _node_summary(node: dict) -> dict:
-    """Summary from a live node dict (any plugin source)."""
-    score = node.get("score") or {}
-    user = node.get("user") or {}
+    """Summary from a live plugin node dict.
+
+    Live plugins normalize to the apinav shape with quality scores as TOP-LEVEL
+    keys (`popularity`, `latency_ms`, `success_rate`, `author`) — see each
+    plugin's _normalize. This is deliberately flat (unlike the apis table's
+    nested score/user, which only exists for stored rows) so live and cached
+    results expose an identical result shape.
+    """
     return {
         "id": node.get("id"),
         "name": node.get("name"),
@@ -235,10 +261,10 @@ def _node_summary(node: dict) -> dict:
         "slug": node.get("slugifiedName"),
         "pricing": node.get("pricing"),
         "category": node.get("categoryName"),
-        "popularity": score.get("popularityScore"),
-        "latency_ms": score.get("avgLatency"),
-        "success_rate": score.get("avgSuccessRate"),
-        "author": user.get("name") or user.get("username"),
+        "popularity": node.get("popularity"),
+        "latency_ms": node.get("latency_ms"),
+        "success_rate": node.get("success_rate"),
+        "author": node.get("author"),
         "endpoint_count": node.get("endpoint_count"),
         "source": node.get("source") or "rapidapi",
         "raw": node.get("raw"),
@@ -256,6 +282,7 @@ def _embed_apis(api_ids: list[str]) -> int:
         return 0
     key = config.secret('NVIDIA_API_KEY')
     conn = schema.get_conn()
+    import embed_matrix
     done = 0
     # Batch (NVIDIA limits per-request size) and append each batch to the numpy
     # cache as we go, instead of a full 16s rebuild on the next search.
@@ -267,14 +294,9 @@ def _embed_apis(api_ids: list[str]) -> int:
         ).fetchall()
         if not rows:
             continue
-        texts = []
-        for r in rows:
-            parts = [r["name"] or ""]
-            if r["description"]:
-                parts.append(r["description"])
-            if r["category"]:
-                parts.append(r["category"])
-            texts.append("\n".join(parts))
+        # Compose embed text via the shared helper (applies the MAX_DESC_CHARS
+        # truncation that prevents HTTP 400 on huge descriptions).
+        texts = [embed_matrix._api_text(dict(r)) for r in rows]
         body = json.dumps({"model": EMBED_MODEL, "input": texts}).encode()
         req = urllib.request.Request(
             EMBED_URL,
@@ -291,7 +313,6 @@ def _embed_apis(api_ids: list[str]) -> int:
                     schema.set_embedding(conn, api_id, EMBED_MODEL, by_index[idx])
                     done += 1
             conn.commit()
-            import embed_matrix
             embed_matrix.append(conn, batch_ids)
         except Exception:
             pass
@@ -309,17 +330,8 @@ def _embed_apis(api_ids: list[str]) -> int:
 )
 async def apinav_keyword_search(query: str, limit: int = 10) -> str:
     try:
-        # FTS5 treats '-' as a column separator; replace with spaces for hyphenated terms.
-        safe_query = query.replace("-", " ").replace("_", " ")
         conn = schema.get_conn()
-        rows = conn.execute(
-            """SELECT a.* FROM apis_fts f
-               JOIN apis a ON a.rowid = f.rowid
-               WHERE apis_fts MATCH ?
-               ORDER BY bm25(apis_fts)
-               LIMIT ?""",
-            (safe_query, limit),
-        ).fetchall()
+        rows = _fts_keyword_rows(conn, query, limit)
         conn.close()
         return json.dumps([_api_summary(r) for r in rows])
     except Exception as e:
@@ -411,16 +423,9 @@ async def apinav_semantic_search(query: str, limit: int = 10) -> str:
         seen = {c["id"] for c in candidates}
         seen_names = {_dedup_key(c) for c in candidates}
         try:
-            safe_query = query.replace("-", " ").replace("_", " ")
-            fts_rows = conn.execute(
-                """SELECT a.* FROM apis_fts f
-                   JOIN apis a ON a.rowid = f.rowid
-                   WHERE apis_fts MATCH ?
-                     AND a.endpoint_count > 0
-                   ORDER BY bm25(apis_fts)
-                   LIMIT ?""",
-                (safe_query, FTS_PREPASS_N),
-            ).fetchall()
+            # Same FTS pre-pass as apinav_keyword_search, but filtered to rows
+            # with endpoints (junk gate) added to the already-seen names.
+            fts_rows = _fts_keyword_rows(conn, query, FTS_PREPASS_N, min_endpoints=True)
             fts_added = 0
             for r in fts_rows:
                 if r["id"] in seen or _is_spam(r):
@@ -578,22 +583,8 @@ async def apinav_live_search(query: str, category: str | None = None, limit: int
         nodes = mod.search(query, limit=limit)
         if not nodes:
             return json.dumps({"error": f"no live results for '{query}'", "source": category, "live": True})
-        out = []
-        for n in nodes:
-            out.append({
-                "id": n.get("id"),
-                "name": n.get("name"),
-                "description": (n.get("description") or "")[:300],
-                "slug": n.get("slugifiedName"),
-                "pricing": n.get("pricing"),
-                "category": n.get("categoryName"),
-                "popularity": n.get("popularity"),
-                "latency_ms": n.get("latency_ms"),
-                "success_rate": n.get("success_rate"),
-                "author": n.get("author"),
-                "endpoint_count": n.get("endpoint_count"),
-                "live": True,
-            })
+        # Same shaping as semantic-search live results for a consistent shape.
+        out = [_node_summary(n) for n in nodes]
         return json.dumps({
             "query": query,
             "category": category,

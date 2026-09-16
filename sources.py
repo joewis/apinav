@@ -58,6 +58,12 @@ KNOWN_SOURCES = [
         "delta_strategy": "none",
         "drift_notes": "Live plugin: per-query Spaces search. Demos, not REST APIs: endpoint gate N/A.",
     },
+    {
+        "source": "apisguru",
+        "refresh_cadence": "per-query",
+        "delta_strategy": "none",
+        "drift_notes": "Live plugin: per-query search over APIs.guru directory; endpoint count from spec fetch.",
+    },
 ]
 
 

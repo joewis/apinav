@@ -8,7 +8,7 @@ no batch ingestion jobs: plugins fetch only what a search asks for, and
 ingest.py caches what arrives.
 
 Policy (enforced here):
-- Spam gate: the full MCP-server spam battery (buy/verified/gamble/adult/SEO,
+- Spam gate: shared `spam.is_spam` battery (buy/verified/gamble/adult/SEO,
   EN + VI) — junk never enters the catalog through the live path.
 - Junk gate: nodes with endpoint_count == 0 are skipped (SEO articles).
   endpoint_count == -1 (unknown) is accepted and backfillable later.
@@ -30,70 +30,12 @@ import re
 import sqlite3
 import sys
 import time
-import unicodedata
 
 sys.path.insert(0, "/home/carl/apinav")
 import schema  # noqa: E402
+from spam import is_spam
 
-# --- spam battery (mirror of the MCP server's regexes, kept in sync) --------
-
-_SPAM_NORM = re.compile(r"[^a-z0-9]+")
-
-_SPAM_RE = re.compile(
-    r"(buy|purchase|acquire|obtain)"
-    r".*(account|accounts|gmail|paypal|cashapp|stripe|binance|"
-    r"wise|coinbase|github|facebook|instagram|telegram|whatsapp|snapchat|"
-    r"twitter|linkedin|googlevoice|reviews|ssn|drivinglicence|edumail)"
-)
-_VERIFIED_ACCOUNT_RE = re.compile(
-    r"verified.*(account|accounts|paypal|cashapp|stripe|binance|wise|coinbase|"
-    r"gmail|github|telegram|whatsapp|snapchat|linkedin|googlevoice|reviews|ssn)"
-)
-_GAMBLE_EN = re.compile(
-    r"\b(bet|betting|casino|gambl|jackpot|slot|poker|blackjack|roulette|"
-    r"baccarat|sportsbook|bookmaker|wager)\b", re.I)
-_ADULT_EN = re.compile(
-    r"\b(sex|porn|xxx|nude|naked|dildo|hentai|escort|onlyfans|sexting|"
-    r"pornhub)\b", re.I)
-_GAMBLE_VI = re.compile(
-    r"(nhacai|nhacaiuytin|lode|xoso|soicau|taixiu|gamebai|danhbai|tienao|"
-    r"keonhacai|dudoan|ketqua|thongke|cacuoc|nohu|banca|quayhu|"
-    r"doithuong|vipbet|net88|hcm66|go88|lodeonline|thantai|kqxs|xsmb|xsmn)", re.I)
-_ADULT_VI = re.compile(r"(cugia|amdao|tinhduc|girlsnude)", re.I)
-_SEO_MARKERS = re.compile(
-    r"(la gi|la gì|là gì|tam quan trong|tầm quan trọng|dieu can biet|"
-    r"điều cần biết|huong dan|hướng dẫn|cach |cách |tai sao|tại sao|"
-    r"loi ich|lợi ích|how to|what is|why |top \d+|best \d+)", re.I)
-
-
-def _strip_diacritics(s: str) -> str:
-    s = s.replace("đ", "d").replace("Đ", "D")
-    return "".join(
-        c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn"
-    )
-
-
-def is_spam(row: dict) -> bool:
-    """Same battery as the server's _is_spam, on a plain dict."""
-    name = (row.get("name") or "").lower()
-    norm = _SPAM_NORM.sub("", name)
-    if _SPAM_RE.search(norm) or _VERIFIED_ACCOUNT_RE.search(norm):
-        return True
-    author = (row.get("author") or "").lower()
-    anorm = _SPAM_NORM.sub("", author)
-    if _SPAM_RE.search(anorm) or _VERIFIED_ACCOUNT_RE.search(anorm):
-        return True
-    desc = _strip_diacritics((row.get("description") or "").lower())
-    blob = name + " " + desc + " " + author
-    if _GAMBLE_EN.search(blob) or _ADULT_EN.search(blob):
-        return True
-    blob_norm = _SPAM_NORM.sub("", blob)
-    if _GAMBLE_VI.search(blob_norm) or _ADULT_VI.search(blob_norm):
-        return True
-    if _SEO_MARKERS.search(blob):
-        return True
-    return False
-
+# --- tag stripping / dedup helpers (shared shape with the server) -----------
 
 def _strip_tags(s: str) -> str:
     return re.sub(r"<[^>]+>", "", s or "")

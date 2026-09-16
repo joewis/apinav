@@ -50,9 +50,9 @@ platform (the repo itself is agent-authored, from schema to this README).
 | `schema.py` | SQLite schema (catalog + FTS5 + embeddings + source registry) |
 | `plugins/` | Live-search plugins (one module per source, uniform `search()` shape) |
 | `plugins/base.py` | Shared plugin plumbing: polite pacing, `RateLimited`/Retry-After |
+| `spam.py` | Shared spam/junk detection battery |
 | `embed_matrix.py` | Incremental numpy vector cache (append per new embedding) |
 | `embed_catalog.py` | Embedding backfill utility for rows pending vectors |
-| `prefilter_spam.py` | Maintenance utility: remove known junk patterns from the catalog |
 | `sources.py` | Source registry: cadence, delta strategy, freshness report |
 | `apinav.py` | CLI and gateway registration helper |
 

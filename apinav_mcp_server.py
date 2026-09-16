@@ -22,11 +22,11 @@ import re
 import subprocess
 import sys
 import time
-import unicodedata
 import urllib.request
 
 sys.path.insert(0, "/home/carl/apinav")
 import schema
+from spam import is_spam as _is_spam
 
 from mcp.server.mcpserver import MCPServer
 
@@ -250,83 +250,6 @@ def _cosine(a: list[float], b: list[float]) -> float:
     if na == 0 or nb == 0:
         return 0.0
     return dot / (na * nb)
-
-
-# Spam/junk detection: open catalogs attract non-API junk that
-# embeds to near-identical vectors and drowns out real results in semantic
-# search. We exclude it from ranking (non-destructive: rows are kept).
-#
-# Categories caught:
-# - account-selling spam ("buy verified/old <platform> accounts")
-# - gambling/betting spam (Vietnamese + English)
-# - adult/NSFW content spam
-# - SEO-article spam (keyword-stuffed articles disguised as APIs)
-#
-# English tokens use word-boundary matching to avoid false positives
-# ('bet' in 'beta', 'tyle' in 'style'). Vietnamese tokens are concatenated
-# and don't collide with English words, so substring matching is safe.
-_SPAM_NORM = re.compile(r"[^a-z0-9]+")
-_SPAM_RE = re.compile(
-    r"(buy|purchase|acquire|obtain)"
-    r".*(account|accounts|gmail|paypal|cashapp|stripe|binance|"
-    r"wise|coinbase|github|facebook|instagram|telegram|whatsapp|snapchat|"
-    r"twitter|linkedin|googlevoice|reviews|ssn|drivinglicence|edumail)"
-)
-# "verified <platform> account" spam without a buy verb (e.g. "Fast Verified
-# PayPal Account", "Verified Cash App Account")
-_VERIFIED_ACCOUNT_RE = re.compile(
-    r"verified.*(account|accounts|paypal|cashapp|stripe|binance|wise|coinbase|"
-    r"gmail|github|telegram|whatsapp|snapchat|linkedin|googlevoice|reviews|ssn)"
-)
-_GAMBLE_EN = re.compile(
-    r"\b(bet|betting|casino|gambl|jackpot|slot|poker|blackjack|roulette|"
-    r"baccarat|sportsbook|bookmaker|wager)\b", re.I)
-_ADULT_EN = re.compile(
-    r"\b(sex|porn|xxx|nude|naked|dildo|hentai|escort|onlyfans|sexting|"
-    r"pornhub)\b", re.I)
-_GAMBLE_VI = re.compile(
-    r"(nhacai|nhacaiuytin|lode|xoso|soicau|taixiu|gamebai|danhbai|tienao|"
-    r"keonhacai|dudoan|ketqua|thongke|cacuoc|nohu|banca|quayhu|"
-    r"doithuong|vipbet|net88|hcm66|go88|lodeonline|thantai|kqxs|xsmb|xsmn)", re.I)
-_ADULT_VI = re.compile(r"(cugia|amdao|tinhduc|girlsnude)", re.I)
-_SEO_MARKERS = re.compile(
-    r"(la gi|la gì|là gì|tam quan trong|tầm quan trọng|dieu can biet|"
-    r"điều cần biết|huong dan|hướng dẫn|cach |cách |tai sao|tại sao|"
-    r"loi ich|lợi ích|how to|what is|why |top \d+|best \d+)", re.I)
-
-
-def _strip_diacritics(s: str) -> str:
-    """Strip Vietnamese/Latin diacritics so 'âm đạo' -> 'am dao'."""
-    s = s.replace("đ", "d").replace("Đ", "D")
-    return "".join(
-        c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn"
-    )
-
-
-def _is_spam(row) -> bool:
-    """Detect spam/junk APIs that pollute semantic ranking. Non-destructive:
-    rows are kept, just excluded from ranking."""
-    name = (row["name"] or "").lower()
-    norm = _SPAM_NORM.sub("", name)
-    if _SPAM_RE.search(norm) or _VERIFIED_ACCOUNT_RE.search(norm):
-        return True
-    author = (row["author"] or "").lower()
-    anorm = _SPAM_NORM.sub("", author)
-    if _SPAM_RE.search(anorm) or _VERIFIED_ACCOUNT_RE.search(anorm):
-        return True
-    # Strip diacritics so Vietnamese junk matches regardless of accent marks
-    desc = _strip_diacritics((row["description"] or "").lower())
-    blob = name + " " + desc + " " + author
-    if _GAMBLE_EN.search(blob) or _ADULT_EN.search(blob):
-        return True
-    # Vietnamese tokens: match on space-stripped blob (concatenated, no
-    # English collision) so 'âm đạo' -> 'amdao' matches
-    blob_norm = _SPAM_NORM.sub("", blob)
-    if _GAMBLE_VI.search(blob_norm) or _ADULT_VI.search(blob_norm):
-        return True
-    if _SEO_MARKERS.search(blob):
-        return True
-    return False
 
 
 def _api_summary(row) -> dict:

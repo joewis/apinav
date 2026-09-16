@@ -18,10 +18,8 @@ embeddings:
 rerank:
   openrouter_url: https://openrouter.ai/api/v1/rerank
   openrouter_model: nvidia/llama-nemotron-rerank-vl-1b-v2:free
-  x380_url: http://192.168.18.22:8080/v1/rerank
   top_n: 100
   threshold_openrouter: 0.02
-  threshold_x380: 0.0005
 
 search:
   fts_prepass_n: 30

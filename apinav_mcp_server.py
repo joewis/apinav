@@ -38,9 +38,9 @@ EMBED_MODEL = config.get("embeddings", "model")
 ENV_PATH = str(config.ENV_FILE)
 OR_RERANK_URL = config.get("rerank", "openrouter_url")
 OR_RERANK_MODEL = config.get("rerank", "openrouter_model")
-X380_RERANK_URL = config.get("rerank", "x380_url")
 RERANK_TOP_N = config.get("rerank", "top_n")
 FTS_PREPASS_N = config.get("search", "fts_prepass_n")
+OR_THRESHOLD = config.get("rerank", "threshold_openrouter")
 
 
 # --- Near-duplicate suppression (UAT 2026-09-10, Kiko) ----------------------
@@ -134,26 +134,11 @@ def _rerank_openrouter(query: str, documents: list[str]) -> list[float]:
     return scores
 
 
-def _rerank_x380(query: str, documents: list[str]) -> list[float]:
-    """Rerank via the x380 LAN GPU (bge-reranker-base). FALLBACK path."""
-    body = json.dumps({"query": query, "documents": documents}).encode()
-    req = urllib.request.Request(
-        X380_RERANK_URL,
-        data=body,
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=900) as r:
-        data = json.loads(r.read())
-    return [float(s) for s in data.get("result", {}).get("scores", [])]
-
-
 def _rerank(query: str, candidates: list[dict]) -> list[dict]:
     """Rerank candidate API summaries by cross-encoder relevance.
 
-    PRIMARY: OpenRouter nemotron-rerank (Joerg-directed; x380 not server
-    grade). FALLBACK: x380 bge-reranker on the LAN. LAST resort: unchanged
-    (cosine order). Threshold differs per backend: OR junk floor ~0.02,
-    bge junk floor ~0.0005 — scored below threshold are dropped.
+    PRIMARY: OpenRouter nemotron-rerank. On failure, falls back to unchanged
+    (cosine) order. Scores below the OR junk floor (~0.02) are dropped.
     """
     if not candidates:
         return candidates
@@ -175,17 +160,13 @@ def _rerank(query: str, candidates: list[dict]) -> list[dict]:
         cat = _strip_tags(c.get("category") or "")
         desc = _strip_tags(c.get("description") or "")[:200]
         documents.append(f"{name} | {cat} | {desc}")
-    # --- PRIMARY: OpenRouter, then x380 fallback, then no-rerank ----------
+    # --- OpenRouter rerank, fall back to cosine order on failure ----------
     scores = None
-    threshold = 0.02
+    threshold = OR_THRESHOLD
     try:
         scores = _rerank_openrouter(query, documents)
     except Exception:
-        try:
-            scores = _rerank_x380(query, documents)
-            threshold = 0.0005  # bge junk floor
-        except Exception:
-            return candidates  # keep cosine order
+        return candidates  # keep cosine order
     if scores is None or len(scores) != len(candidates):
         return candidates
     for c, score in zip(candidates, scores):

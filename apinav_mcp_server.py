@@ -1,19 +1,5 @@
 #!/home/carl/mcp-gateway-venv/bin/python
-"""MCP server exposing the local multi-source API catalog index (apinav).
-
-Sources: live directory plugins (provenance in the `source` column).
-
-Tools:
-- apinav_keyword_search: FTS5 keyword search over name/description/category
-- apinav_semantic_search: cosine-similarity semantic search (embeds the query
-  with NVIDIA nemotron-3-embed-1b, then ranks stored vectors)
-- apinav_get_api: fetch one API's full record by id or slug
-- apinav_live_search: live source search + merge
-- apinav_catalog_stats: counts + freshness
-
-Shared capability for all agents through the gateway. Reads NVIDIA_API_KEY from
-~/.hermes/.env for query embedding.
-"""
+"""MCP server exposing the local multi-source API catalog index."""
 import asyncio
 import json
 import math
@@ -42,33 +28,20 @@ FTS_PREPASS_N = config.get("search", "fts_prepass_n")
 RERANK_THRESHOLD = config.get("rerank", "threshold")
 
 
-# --- Near-duplicate suppression (UAT 2026-09-10, Kiko) ----------------------
-# Catalog has many clone entries (same name+description, different slug or
-# author). Without dedup one bad match can occupy several top-10 slots —
-# e.g. five identical "Audio File to Text Converter" rows filled positions
-# 4-10 of a TTS query. Dedupe on normalized (name, description-head), keeping
-# the first occurrence (highest cosine, since candidates arrive in cosine
-# order). Distinct APIs that share a name but differ in description survive.
-
-# Some source results carry <em> highlight tags inside name/category/description
-# (e.g. "<em>Speech</em>2<em>Text</em>"). Strip them before any matching —
-# they break regexes (direction guard) and dedup normalization alike.
+# Near-duplicate suppression: dedupe on normalized (name, description-head).
 
 def _strip_tags(s: str) -> str:
+    """Strip HTML tags from a string."""
     return re.sub(r"<[^>]+>", "", s or "")
 
 def _dedup_key(c: dict) -> str:
+    """Generate a deduplication key from name and description prefix."""
     def _norm(s: str) -> str:
         return re.sub(r"[^a-z0-9]+", "", _strip_tags(s).lower())
     return _norm(c.get("name")) + "|" + _norm((c.get("description") or "")[:120])
 
 
-# --- Audio direction guard (UAT 2026-09-10, Kiko) --------------------------
-# bge-reranker-base can't reliably separate "text to speech" from "speech to
-# text" (too many shared tokens). Penalize candidates whose audio direction
-# contradicts the query's; the zeroed score drops them below the relevance
-# threshold. Direction is judged on the NAME (descriptions may legitimately
-# mention both directions for a converter API).
+# Audio direction guard: penalize candidates whose audio direction contradicts the query.
 
 _TTS_RE = re.compile(
     r"\b(text[\s\-_]*(?:to|2)[\s\-_]*(?:spe(?:e|a)ch|voice|audio|sound)|"
@@ -116,7 +89,7 @@ def _rerank_endpoint(query: str, documents: list[str]) -> list[float]:
     )
     with urllib.request.urlopen(req, timeout=120) as r:
         data = json.loads(r.read())
-    # Endpoint returns [{"index": i, "relevance_score": s}, ...] — unranked order
+    # Endpoint returns unranked scores by index.
     scores = [0.0] * len(documents)
     for x in data.get("results", []):
         i = x.get("index")
@@ -126,15 +99,9 @@ def _rerank_endpoint(query: str, documents: list[str]) -> list[float]:
 
 
 def _rerank(query: str, candidates: list[dict]) -> list[dict]:
-    """Rerank candidate API summaries by cross-encoder relevance.
-
-    PRIMARY: the configured cross-encoder endpoint. On failure, falls back to
-    unchanged (cosine) order. Scores below the endpoint junk floor (~0.02) are
-    dropped.
-    """
+    """Rerank candidate API summaries by cross-encoder relevance."""
     if not candidates:
         return candidates
-    # Near-duplicate suppression BEFORE reranking
     seen = set()
     deduped = []
     for c in candidates:
@@ -146,28 +113,23 @@ def _rerank(query: str, candidates: list[dict]) -> list[dict]:
     candidates = deduped
     documents = []
     for c in candidates:
-        # Compose a single doc string for the cross-encoder (tags stripped:
-        # they'd otherwise be scored as literal tokens)
         name = _strip_tags(c.get("name") or "")
         cat = _strip_tags(c.get("category") or "")
         desc = _strip_tags(c.get("description") or "")[:200]
         documents.append(f"{name} | {cat} | {desc}")
-    # --- Rerank via the configured endpoint, fall back to cosine order -----
     scores = None
     threshold = RERANK_THRESHOLD
     try:
         scores = _rerank_endpoint(query, documents)
     except Exception:
-        return candidates  # keep cosine order
+        return candidates
     if scores is None or len(scores) != len(candidates):
         return candidates
     for c, score in zip(candidates, scores):
         s = float(score)
-        # Opposite-direction audio candidates: zero out so the threshold drops them
         if _direction_penalty(query, c) is not None:
             s = 0.0
         c["_rerank_score"] = s
-    # Drop weak matches (threshold per backend, set above)
     candidates = [c for c in candidates if c.get("_rerank_score", 0) >= threshold]
     if not candidates:
         return []  # caller will fall back to cosine order
@@ -215,7 +177,7 @@ def _api_summary(row) -> dict:
         "endpoint_count": row["endpoint_count"],
         "source": row["source"],
     }
-    # Resolve docs/spec links from the owning plugin. Missing links stay absent.
+    # Resolve docs/spec links from the owning plugin.
     try:
         links = build_links(dict(row))
         d["links"] = {k: v for k, v in links.items() if v}
@@ -242,7 +204,7 @@ def _node_summary(node: dict) -> dict:
         "endpoint_count": node.get("endpoint_count"),
         "source": node.get("source") or "rapidapi",
         "raw": node.get("raw"),
-        # apis.io extras (display + live link resolution; NOT persisted)
+        # apis.io display fields (not persisted).
         "provider_name": node.get("provider_name"),
         "baseURL": node.get("baseURL"),
         "humanURL": node.get("humanURL"),
@@ -257,7 +219,7 @@ def _embed_apis(api_ids: list[str]) -> int:
     key = config.secret('NVIDIA_API_KEY')
     conn = schema.get_conn()
     done = 0
-    # batch by 32
+    # Batch by 32.
     for i in range(0, len(api_ids), 32):
         batch_ids = api_ids[i : i + 32]
         rows = conn.execute(
@@ -290,9 +252,6 @@ def _embed_apis(api_ids: list[str]) -> int:
                     schema.set_embedding(conn, api_id, EMBED_MODEL, by_index[idx])
                     done += 1
             conn.commit()
-            # Incremental cache growth: add the new vectors to the numpy
-            # matrix in milliseconds instead of a 16s full rebuild on the
-            # next search (catalog-publish path — frequent additions).
             import embed_matrix
             embed_matrix.append(conn, batch_ids)
         except Exception:
@@ -311,9 +270,7 @@ def _embed_apis(api_ids: list[str]) -> int:
 )
 async def apinav_keyword_search(query: str, limit: int = 10) -> str:
     try:
-        # FTS5 treats '-' as a column separator in queries, which breaks
-        # hyphenated terms like 'sky-scrapper'. Replace hyphens with spaces
-        # so 'sky-scrapper' -> 'sky scrapper' (both tokens match).
+        # FTS5 treats '-' as a column separator; replace with spaces for hyphenated terms.
         safe_query = query.replace("-", " ").replace("_", " ")
         conn = schema.get_conn()
         rows = conn.execute(
@@ -351,10 +308,7 @@ async def apinav_semantic_search(query: str, limit: int = 10) -> str:
         qvec = _embed_query(query)
         t_embed = time.time()
         conn = schema.get_conn()
-        # Fast path: cached normalized embedding matrix (numpy) mirroring the
-        # embeddings table — stable while the endpoint backfill runs (it only
-        # mutates `apis`). Stale/missing cache is rebuilt inline; any failure
-        # falls back to the pure-Python scan (~31s for 46k rows).
+        # Use cached normalized embedding matrix for fast ranking.
         scored = None
         try:
             import numpy as np
@@ -382,7 +336,7 @@ async def apinav_semantic_search(query: str, limit: int = 10) -> str:
                         break
                     r = by_id.get(ids[int(i)])
                     if r is None or _is_spam(r) or r["endpoint_count"] == 0:
-                        continue  # deleted since cache build, spam, or junk
+                        continue
                     picked.append((float(sims[int(i)]), r))
                 scored = picked
         except Exception:
@@ -405,13 +359,7 @@ async def apinav_semantic_search(query: str, limit: int = 10) -> str:
         conn.close()
         t_cos = time.time()
 
-        # --- 1b. Build the candidate pool (top-N cosine + FTS pre-pass) ------
-        # Cosine alone has a recall hole (instrumented 2026-09-11): the DB's
-        # own "Text to Speech" row sat at cosine rank 2085 while junk ranked
-        # top-8 — bi-encoders rank keyword-stuffed descriptions above terse
-        # real ones. FTS/bm25 catches exact-term hits the embeddings miss;
-        # the cross-encoder (which scores local TTS 0.877 vs junk 0.004)
-        # then judges the union. Both paths feed the SAME rerank pool.
+        # Build the candidate pool from cosine similarity and FTS keyword search.
         candidates = []
         for sim, r in scored[:RERANK_TOP_N]:
             s = _api_summary(r)
@@ -447,19 +395,9 @@ async def apinav_semantic_search(query: str, limit: int = 10) -> str:
         conn.close()
         t_cand = time.time()
 
-        # --- 2. MERGE FIRST (user-mandated ordering) ------------------------
-        # Live search runs BEFORE reranking, so the cross-encoder scores the
-        # merged pool — live results compete for top slots on relevance instead
-        # of being appended unranked to the tail. All live sources are uniform
-        # plugins (see 2b): per-query overlays; novel ids are persisted by ingest.py.
+        # Merge live plugin results into the candidate pool before reranking.
         live_merged = 0
-        # --- 2b. LIVE PLUGINS -------------------------------------------------
-        # All live sources are plugins with a uniform search() shape: per-query
-        # overlays — fetched, guarded, links resolved live, merged into the
-        # candidate pool BEFORE rerank — never persisted.
         plugin_nodes = []
-        # ALL live sources are uniform plugins: auto-discovered from plugins/,
-        # each exports SOURCE + search(query, limit); tuning lives in plugins.yaml.
         try:
             import plugins
             for n in plugins.search_all(query):
@@ -478,8 +416,6 @@ async def apinav_semantic_search(query: str, limit: int = 10) -> str:
                     continue
                 try:
                     from plugins import build_links
-                    # live plugin summaries carry their docs URL on the
-                    # node (humanURL) — the owning plugin resolves links.
                     links = build_links(n)
                     if any(links.values()):
                         n["links"] = {nk: v for nk, v in links.items() if v}
@@ -489,11 +425,7 @@ async def apinav_semantic_search(query: str, limit: int = 10) -> str:
                 candidates.append(n)
                 seen.add(n["id"])
 
-        # --- 2c. ORGANIC GROWTH: persist novel live rows (Joerg 2026-09-15) --
-        # Live results that passed the gates AND were never seen before are
-        # persisted to the local catalog so it grows during usage. Best-effort:
-        # lock/failure never blocks the query. Re-sights (known ids) are cheap
-        # skips inside ingest.persist_plugin_results.
+        # Persist novel live rows to the local catalog (organic growth).
         persisted = 0
         try:
             import sys as _sys
@@ -504,20 +436,18 @@ async def apinav_semantic_search(query: str, limit: int = 10) -> str:
             _ps = _ingest.persist_plugin_results(plugin_nodes)
             persisted = _ps.get("added", 0)
             if _ps.get("added_ids"):
-                # embed in-line (fast, batches of 32); failure leaves them
-                # un-embedded and invisible to semantic search until backfill
                 _ingest.embed_new_rows(_ps["added_ids"])
         except Exception:
-            persisted = -1  # signal: persist errored, search unaffected
+            persisted = -1
 
-        # --- 3. RERANK LAST: cross-encoder over the merged pool -------------
+        # Rerank the merged candidate pool with cross-encoder.
         t_merge_done = time.time()
         reranked = False
         try:
             candidates = _rerank(query, candidates)
             reranked = True
         except Exception:
-            pass  # fallback to cosine order
+            pass
         t_rerank_done = time.time()
         out = candidates[:limit]
 

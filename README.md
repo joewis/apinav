@@ -54,7 +54,6 @@ platform (the repo itself is agent-authored, from schema to this README).
 | `embed_catalog.py` | Embedding backfill utility for rows pending vectors |
 | `prefilter_spam.py` | Maintenance utility: remove known junk patterns from the catalog |
 | `sources.py` | Source registry: cadence, delta strategy, freshness report |
-| `rebuild_fts.py` | Rebuild the FTS5 index after schema changes |
 | `apinav.py` | CLI and gateway registration helper |
 
 ## Plugin contract

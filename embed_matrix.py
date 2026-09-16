@@ -77,7 +77,7 @@ def embed_all(conn=None, limit: int | None = None) -> int:
         schema.init_db()
         conn = schema.get_conn()
 
-    key = config.secret('NVIDIA_API_KEY')
+    key = config.secret('EMBEDDING_API_KEY')
     print(f"Using model {EMBED_MODEL} (2048-dim).")
 
     rows = conn.execute(

@@ -160,7 +160,7 @@ def embed_new_rows(added_ids: list[str]) -> int:
     """Best-effort NVIDIA embed for just-persisted rows + matrix append.
 
     Same convention as the server's _embed_apis: batches of 32, reads
-    NVIDIA_API_KEY from the environment, appends to the numpy cache via
+    EMBEDDING_API_KEY from the environment, appends to the numpy cache via
     embed_matrix.append. Any failure returns the partial count and leaves
     the rows for the next backfill pass.
     """
@@ -169,7 +169,7 @@ def embed_new_rows(added_ids: list[str]) -> int:
     import json as _json
     import urllib.request
 
-    env = config.secret('NVIDIA_API_KEY')
+    env = config.secret('EMBEDDING_API_KEY')
     if not env:
         return 0
     EMBED_URL = config.get("embeddings", "url")

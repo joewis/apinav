@@ -10,3 +10,4 @@ logs/
 rapidapi_client.py
 marketplace_client.py
 camofox*
+.env

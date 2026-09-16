@@ -3,7 +3,7 @@
 
 paths:
   apinav_dir: /home/carl/apinav
-  env_file: /home/carl/.hermes/.env
+  env_file: /home/carl/apinav/.env
   db: /home/carl/apinav/catalog.db
 
 embeddings:

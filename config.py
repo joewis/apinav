@@ -34,8 +34,8 @@ ENV_FILE = Path(get("paths", "env_file", default="/home/carl/.hermes/.env"))
 DB_PATH = Path(get("paths", "db", default="/home/carl/apinav/catalog.db"))
 
 # --- Secrets (kept in .env, never in config.yaml) --------------------------
-# Each key is a dotenv VAR_NAME. `secret("NVIDIA_API_KEY")` reads it from the
-# env file at import; caller is responsible for the env var name.
+# Each key is a dotenv VAR_NAME. `secret("EMBEDDING_API_KEY")` reads it from
+# the env file at import; caller is responsible for the env var name.
 _SECRETS: dict[str, str | None] = {}
 
 

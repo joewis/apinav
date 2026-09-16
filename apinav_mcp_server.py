@@ -113,7 +113,7 @@ def _rerank_endpoint(query: str, documents: list[str]) -> list[float]:
         RERANK_URL,
         data=body,
         headers={
-            "Authorization": f"Bearer {config.secret('OPENROUTER_API_KEY')}",
+            "Authorization": f"Bearer {config.secret('RERANK_API_KEY')}",
             "Content-Type": "application/json",
         },
     )
@@ -183,7 +183,7 @@ def _rerank(query: str, candidates: list[dict]) -> list[dict]:
 
 
 def _embed_query(text: str) -> list[float]:
-    key = config.secret('NVIDIA_API_KEY')
+    key = config.secret('EMBEDDING_API_KEY')
     body = json.dumps({"model": EMBED_MODEL, "input": [text]}).encode()
     req = urllib.request.Request(
         EMBED_URL,
@@ -285,7 +285,7 @@ def _embed_apis(api_ids: list[str]) -> int:
     """Embed a list of API ids (by id) with NVIDIA. Returns count embedded."""
     if not api_ids:
         return 0
-    key = config.secret('NVIDIA_API_KEY')
+    key = config.secret('EMBEDDING_API_KEY')
     conn = schema.get_conn()
     import embed_matrix
     done = 0

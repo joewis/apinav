@@ -246,8 +246,6 @@ def _node_summary(node: dict) -> dict:
         "provider_name": node.get("provider_name"),
         "baseURL": node.get("baseURL"),
         "humanURL": node.get("humanURL"),
-        # curated-search rank (brand-bridge boost in _rerank; overlay only)
-        "aio_rank": node.get("aio_rank"),
         "live": True,
     }
 

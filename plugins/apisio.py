@@ -3,11 +3,7 @@
 BM25-style relevance over ~133.6k APIs, agent-permitted (robots.txt + terms),
 no auth, plain HTTP. Per-query only: curated /search?q= first (brand-tolerant
 — bare brand names like 'moomoo' resolve to the right API where the literal
-list search returns 0), literal /apis?q= as extension. Nodes carry
-aio_rank = 0-based position in apis.io's curated ranking — downstream rerank
-uses it as a small additive boost: the cross-encoder only sees the stored
-text (which says 'Futu', not 'Moomoo') and would threshold the bridge away;
-their ranking IS the brand-bridge signal.
+list search returns 0), literal /apis?q= as extension.
 
 Novel results are persisted by ingest.py (organic growth); re-sights are
 cheap id skips.
@@ -25,10 +21,8 @@ def _search_curated(query: str, limit: int = 10) -> list[dict]:
     """PRIMARY path: /search?q= — their curated/semantic search."""
     d = base.get(f"{BASE}/search?query=&q=" + base.enc(query), SOURCE)
     nodes = []
-    for i, t in enumerate((d.get("apis", {}).get("top") or [])[:limit]):
-        n = _normalize(t)
-        n["aio_rank"] = i
-        nodes.append(n)
+    for t in (d.get("apis", {}).get("top") or [])[:limit]:
+        nodes.append(_normalize(t))
     return nodes
 
 

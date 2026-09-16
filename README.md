@@ -48,7 +48,9 @@ platform (the repo itself is agent-authored, from schema to this README).
 | `apinav_mcp_server.py` | MCP server: keyword search, semantic search (live merge + persist), live search, record fetch, stats |
 | `ingest.py` | Organic-growth persistence: quality gates, dedup, upsert + NVIDIA embed + vector-cache append for novel live results |
 | `schema.py` | SQLite schema (catalog + FTS5 + embeddings + source registry) |
-| `plugins/plugins.yaml` | Plugin registry config: limits, cadence, drift notes |
+| `config.yaml` | Central configuration: paths, endpoints, models, tuning parameters |
+| `config.py` | Config loader used by all modules |
+| `plugins/plugins.yaml` | Plugin registry config: base URLs, limits, cadence, drift notes |
 | `sources.py` | Source registry CLI: init, report, set |
 | `plugins/` | Live-search plugins (one module per source, uniform `search()` shape) |
 | `plugins/base.py` | Shared plugin plumbing: polite pacing, `RateLimited`/Retry-After |

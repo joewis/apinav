@@ -7,7 +7,7 @@ Each plugin module must export:
 Optionally it may export:
     def build_links(row: dict) -> dict
 
-Plugin tuning (limits, cadence, drift notes) lives in plugins.yaml.
+Plugin tuning (limits, cadence, drift notes, base URLs) lives in plugins.yaml.
 """
 import importlib
 import os
@@ -23,6 +23,15 @@ def _load_config(path: Path = _CONFIG_PATH) -> dict[str, dict]:
     with open(path) as f:
         data = yaml.safe_load(f)
     return {p["source"]: p for p in (data.get("plugins") or [])}
+
+
+# Load once; plugins imported during discovery can call get_config() safely.
+_CONFIG = _load_config()
+
+
+def get_config(source: str) -> dict:
+    """Return the plugins.yaml config entry for a source, or {} if absent."""
+    return _CONFIG.get(source, {})
 
 
 def _discover_modules() -> list:
@@ -42,17 +51,15 @@ def _discover_modules() -> list:
     return modules
 
 
-def _build_registry() -> tuple[dict[str, object], dict[str, dict]]:
-    config = _load_config()
+def _build_registry() -> dict[str, object]:
     plugins = {}
     for mod in _discover_modules():
         source = mod.SOURCE
-        # Sanity: source name must match filename convention (optional but tidy).
         plugins[source] = mod
-    return plugins, config
+    return plugins
 
 
-PLUGINS, _CONFIG = _build_registry()
+PLUGINS = _build_registry()
 
 
 def search_all(query: str) -> list[dict]:
@@ -63,7 +70,7 @@ def search_all(query: str) -> list[dict]:
     """
     out = []
     for source, mod in PLUGINS.items():
-        cfg = _CONFIG.get(source) or {}
+        cfg = get_config(source)
         limit = cfg.get("limit", 5)
         try:
             out.extend(mod.search(query, limit=limit))

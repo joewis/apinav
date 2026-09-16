@@ -25,6 +25,7 @@ import time
 import urllib.request
 
 sys.path.insert(0, "/home/carl/apinav")
+import config
 import schema
 from spam import is_spam as _is_spam
 
@@ -32,24 +33,14 @@ from mcp.server.mcpserver import MCPServer
 
 server = MCPServer("apinav-mcp", "1.0.0")
 
-EMBED_URL = "https://integrate.api.nvidia.com/v1/embeddings"
-EMBED_MODEL = "nvidia/nemotron-3-embed-1b"
-ENV_PATH = "/home/carl/.hermes/.env"
-
-# Cross-encoder reranker via OpenRouter (Joerg-directed 2026-09-11: x380 is
-# not server-grade; prefer the cloud model). llama-nemotron-rerank-vl-1b-v2:free
-# — 1.7B cross-encoder, Cohere-shape /rerank API, benchmarked 2026-09-11:
-# top-1 agreement 4/5 with bge-reranker, clean junk separation (real 0.27-0.68
-# vs junk <=0.02). Latency ~0.7-1s at 100-130 docs. Junk floor ~0.02 →
-# threshold 0.02 (replaces bge's 0.0005). x380 kept as FALLBACK only.
-OR_RERANK_URL = "https://openrouter.ai/api/v1/rerank"
-OR_RERANK_MODEL = "nvidia/llama-nemotron-rerank-vl-1b-v2:free"
-X380_RERANK_URL = "http://192.168.18.22:8080/v1/rerank"
-RERANK_TOP_N = 100  # retrieve this many candidates, then cross-encoder rerank
-# FTS/bm25 pre-pass: extra local candidates fed into the SAME rerank pool,
-# catching exact-term hits the bi-encoder cosine misses (rank-2085 TTS row
-# case). Kept modest — the reranker costs ~30ms/doc on x380.
-FTS_PREPASS_N = 30
+EMBED_URL = config.get("embeddings", "url")
+EMBED_MODEL = config.get("embeddings", "model")
+ENV_PATH = str(config.ENV_FILE)
+OR_RERANK_URL = config.get("rerank", "openrouter_url")
+OR_RERANK_MODEL = config.get("rerank", "openrouter_model")
+X380_RERANK_URL = config.get("rerank", "x380_url")
+RERANK_TOP_N = config.get("rerank", "top_n")
+FTS_PREPASS_N = config.get("search", "fts_prepass_n")
 
 
 # --- Near-duplicate suppression (UAT 2026-09-10, Kiko) ----------------------

@@ -17,10 +17,11 @@ keyword filtering. Zero-endpoint entries are dropped (junk gate).
 import sys, os
 sys.path.insert(0, __import__('os').path.dirname(__file__))
 import base
+from plugins import get_config
 
-BASE = "https://api.apis.guru/v2"
+BASE = get_config("apisguru").get("base_url", "https://api.apis.guru/v2")
 SOURCE = "apisguru"
-_LIST_TTL = 3600  # list.json changes slowly; cache 1 hour
+_LIST_TTL = get_config("apisguru").get("ttl_seconds", 3600)
 _cache = {"fetched": 0.0, "list": {}}
 
 _HTTP_METHODS = {"get", "post", "put", "delete", "patch", "head", "options"}

@@ -15,9 +15,10 @@ cheap id skips.
 import sys, os
 sys.path.insert(0, __import__('os').path.dirname(__file__))
 import base
+from plugins import get_config
 
 SOURCE = "apisio"
-BASE = "https://apis.io/api/v1"
+BASE = get_config(SOURCE).get("base_url", "https://apis.io/api/v1")
 
 
 def _search_curated(query: str, limit: int = 10) -> list[dict]:

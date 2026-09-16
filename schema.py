@@ -4,14 +4,14 @@ Tables:
 - apis: one row per API (id, name, description, slug, pricing, category, scores, author, updated)
 - embeddings: one row per API embedding (api_id -> 2048-dim float vector, stored as JSON)
 - apis_fts: FTS5 virtual table for keyword search over name+description+category
-
-The DB lives at /home/carl/apinav/catalog.db.
 """
 import json
 import os
 import sqlite3
 
-DB_PATH = "/home/carl/apinav/catalog.db"
+import config
+
+DB_PATH = str(config.DB_PATH)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS apis (

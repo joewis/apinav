@@ -9,8 +9,9 @@ Docs link = actor's store URL built from username/name (stable pattern).
 import sys, os
 sys.path.insert(0, __import__('os').path.dirname(__file__))
 import base
+from plugins import get_config
 
-BASE = "https://api.apify.com/v2/store"
+BASE = get_config("apify").get("base_url", "https://api.apify.com/v2/store")
 SOURCE = "apify"
 
 

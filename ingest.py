@@ -32,8 +32,16 @@ import sys
 import time
 
 sys.path.insert(0, "/home/carl/apinav")
+import config
 import schema  # noqa: E402
 from spam import is_spam
+
+# Per-source persistence caps (per call): live results are few; these caps
+# stop a single chatty plugin from flooding the catalog in one query.
+_PER_SOURCE_CAP = config.get("ingest", "per_source_cap")
+
+# SQLite busy timeout for the single-writer transaction.
+_BUSY_TIMEOUT_MS = config.get("ingest", "busy_timeout_ms")
 
 # --- tag stripping / dedup helpers (shared shape with the server) -----------
 
@@ -80,7 +88,7 @@ def persist_plugin_results(nodes: list[dict]) -> dict:
 
     conn = schema.get_conn()
     try:
-        conn.execute("PRAGMA busy_timeout=3000")
+        conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
     except Exception:
         pass
 
@@ -182,7 +190,7 @@ def embed_new_rows(added_ids: list[str]) -> int:
     env = os.environ.get("NVIDIA_API_KEY")
     if not env:
         try:
-            for line in open("/home/carl/.hermes/.env"):
+            for line in open(str(config.ENV_FILE)):
                 if line.startswith("NVIDIA_API_KEY="):
                     env = line.split("=", 1)[1].strip()
                     break
@@ -190,14 +198,16 @@ def embed_new_rows(added_ids: list[str]) -> int:
             return 0
     if not env:
         return 0
-    EMBED_URL = "https://integrate.api.nvidia.com/v1/embeddings"
-    EMBED_MODEL = "nvidia/nemotron-3-embed-1b"
+    EMBED_URL = config.get("embeddings", "url")
+    EMBED_MODEL = config.get("embeddings", "model")
+    BATCH_SIZE = config.get("embeddings", "batch_size")
+    HTTP_TIMEOUT = config.get("http", "timeout")
 
     conn = schema.get_conn()
     done = 0
     try:
-        for i in range(0, len(added_ids), 32):
-            batch_ids = added_ids[i:i + 32]
+        for i in range(0, len(added_ids), BATCH_SIZE):
+            batch_ids = added_ids[i:i + BATCH_SIZE]
             qmarks = ",".join("?" * len(batch_ids))
             rows = conn.execute(
                 f"SELECT id, name, description, category FROM apis "
@@ -224,7 +234,7 @@ def embed_new_rows(added_ids: list[str]) -> int:
                 },
             )
             try:
-                with urllib.request.urlopen(req, timeout=60) as resp:
+                with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
                     data = _json.loads(resp.read())
                 by_index = {d["index"]: d["embedding"] for d in data["data"]}
                 conn.execute("BEGIN")

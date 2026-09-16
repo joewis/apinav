@@ -23,19 +23,20 @@ import urllib.request
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import config
 import schema
 
-MATRIX_PATH = "/home/carl/apinav/embed_matrix.npy"
-IDS_PATH = "/home/carl/apinav/embed_ids.json"
+MATRIX_PATH = str(config.APINAV_DIR / "embed_matrix.npy")
+IDS_PATH = str(config.APINAV_DIR / "embed_ids.json")
 
-EMBED_URL = "https://integrate.api.nvidia.com/v1/embeddings"
-EMBED_MODEL = "nvidia/nemotron-3-embed-1b"
-BATCH_SIZE = 32
-BASE_DELAY = 0.5          # seconds between batches
-MAX_RETRIES = 5
-RETRY_BACKOFF = 2.0
-MAX_DESC_CHARS = 4000     # truncate descriptions to avoid NVIDIA 400 on huge specs
-ENV_PATH = "/home/carl/.hermes/.env"
+EMBED_URL = config.get("embeddings", "url")
+EMBED_MODEL = config.get("embeddings", "model")
+BATCH_SIZE = config.get("embeddings", "batch_size")
+BASE_DELAY = config.get("embeddings", "base_delay")
+MAX_RETRIES = config.get("embeddings", "max_retries")
+RETRY_BACKOFF = config.get("embeddings", "retry_backoff")
+MAX_DESC_CHARS = config.get("embeddings", "max_desc_chars")
+ENV_PATH = str(config.ENV_FILE)
 
 
 def _load_key() -> str:

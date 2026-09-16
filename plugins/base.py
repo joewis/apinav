@@ -9,8 +9,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) Elitedesk-API-Search"}
-PACING = 0.5  # seconds between calls per plugin (polite default)
+import config
+
+UA = {"User-Agent": config.get("http", "user_agent")}
+PACING = config.get("http", "pacing")
+TIMEOUT = config.get("http", "timeout")
 _last_call = {}
 
 
@@ -23,7 +26,7 @@ class RateLimited(Exception):
         super().__init__(f"{source} 429, retry_after={seconds}")
 
 
-def get(url: str, source: str, delay: float = PACING, timeout: int = 30) -> dict:
+def get(url: str, source: str, delay: float = PACING, timeout: int = TIMEOUT) -> dict:
     """Polite paced GET returning parsed JSON. Raises RateLimited on 429."""
     now = time.time()
     since = now - _last_call.get(source, 0.0)

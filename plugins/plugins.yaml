@@ -1,9 +1,10 @@
 # Plugin registry for apinav.
 # Each plugin is auto-discovered from a .py file in this directory.
-# This YAML only holds configuration/tuning for each discovered plugin.
+# This YAML holds configuration/tuning for each discovered plugin.
 
 plugins:
   - source: apisio
+    base_url: "https://apis.io/api/v1"
     limit: 8
     refresh_cadence: per-query
     drift_notes: "Live plugin: curated + full search per query. Agent-permitted (robots+terms)."
@@ -14,26 +15,33 @@ plugins:
     drift_notes: "Live plugin: per-query search via optional local session client; rate-limit aware with Retry-After handling."
 
   - source: smithery
+    base_url: "https://registry.smithery.ai"
     limit: 5
     refresh_cadence: per-query
     drift_notes: "Live plugin: per-query registry search."
 
   - source: apify
+    base_url: "https://api.apify.com/v2/store"
     limit: 4
     refresh_cadence: per-query
     drift_notes: "Live plugin: per-query store search. Execution marketplace (actors), not REST APIs: endpoint gate N/A."
 
   - source: googledisc
+    base_url: "https://www.googleapis.com/discovery/v1/apis"
+    ttl_seconds: 86400
     limit: 3
     refresh_cadence: per-query
     drift_notes: "Live plugin: per-query directory search."
 
   - source: hfspace
+    base_url: "https://huggingface.co/api/spaces"
     limit: 3
     refresh_cadence: per-query
     drift_notes: "Live plugin: per-query Spaces search. Demos, not REST APIs: endpoint gate N/A."
 
   - source: apisguru
+    base_url: "https://api.apis.guru/v2"
+    ttl_seconds: 3600
     limit: 5
     refresh_cadence: per-query
     drift_notes: "Live plugin: per-query search over APIs.guru directory; endpoint count from spec fetch."

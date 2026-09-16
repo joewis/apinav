@@ -1,0 +1,36 @@
+# Central configuration for apinav.
+# Paths here are absolute because this runs on a specific home-lab host.
+
+paths:
+  apinav_dir: /home/carl/apinav
+  env_file: /home/carl/.hermes/.env
+  db: /home/carl/apinav/catalog.db
+
+embeddings:
+  url: https://integrate.api.nvidia.com/v1/embeddings
+  model: nvidia/nemotron-3-embed-1b
+  batch_size: 32
+  base_delay: 0.5
+  max_retries: 5
+  retry_backoff: 2.0
+  max_desc_chars: 4000
+
+rerank:
+  openrouter_url: https://openrouter.ai/api/v1/rerank
+  openrouter_model: nvidia/llama-nemotron-rerank-vl-1b-v2:free
+  x380_url: http://192.168.18.22:8080/v1/rerank
+  top_n: 100
+  threshold_openrouter: 0.02
+  threshold_x380: 0.0005
+
+search:
+  fts_prepass_n: 30
+
+ingest:
+  per_source_cap: 5
+  busy_timeout_ms: 3000
+
+http:
+  pacing: 0.5
+  timeout: 30
+  user_agent: "Mozilla/5.0 (X11; Linux x86_64) Elitedesk-API-Search"

@@ -16,9 +16,10 @@ import sys
 import yaml
 
 sys.path.insert(0, "/home/carl/apinav")
+import config
 import schema
 
-_CONFIG_PATH = "/home/carl/apinav/plugins/plugins.yaml"
+_CONFIG_PATH = str(config.APINAV_DIR / "plugins" / "plugins.yaml")
 
 
 def load_known_sources(path: str = _CONFIG_PATH) -> list[dict]:

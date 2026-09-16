@@ -11,10 +11,11 @@ the human docs (both present on items).
 import sys, os
 sys.path.insert(0, __import__('os').path.dirname(__file__))
 import base
+from plugins import get_config
 
-BASE = "https://www.googleapis.com/discovery/v1/apis"
+BASE = get_config("googledisc").get("base_url", "https://www.googleapis.com/discovery/v1/apis")
 SOURCE = "googledisc"
-_TTL = 24 * 3600  # directory is static; refetch daily at most
+_TTL = get_config("googledisc").get("ttl_seconds", 24 * 3600)
 _cache = {"fetched": 0.0, "items": []}
 
 

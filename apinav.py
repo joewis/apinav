@@ -12,13 +12,14 @@ import sys
 import json
 import importlib.util
 
+import config
+
 
 def _load_gateway_meta():
     """Use the same gateway the MCP server tools run through, but call the
     apinav backend directly in-process for a snappy CLI experience."""
-    spec = importlib.util.spec_from_file_location(
-        "apinav_server", "/home/carl/mcp-servers/apinav_mcp_server.py"
-    )
+    server_path = str(config.APINAV_DIR / "apinav_mcp_server.py")
+    spec = importlib.util.spec_from_file_location("apinav_server", server_path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

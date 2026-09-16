@@ -9,9 +9,9 @@ isn't a REST API. Docs link = homepage (verified present on rows).
 import sys, os
 sys.path.insert(0, __import__('os').path.dirname(__file__))
 import base
-import json
+from plugins import get_config
 
-BASE = "https://registry.smithery.ai"
+BASE = get_config("smithery").get("base_url", "https://registry.smithery.ai")
 SOURCE = "smithery"
 
 

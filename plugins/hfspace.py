@@ -9,8 +9,9 @@ limit low so real APIs outrank demos.
 import sys, os
 sys.path.insert(0, __import__('os').path.dirname(__file__))
 import base
+from plugins import get_config
 
-BASE = "https://huggingface.co/api/spaces"
+BASE = get_config("hfspace").get("base_url", "https://huggingface.co/api/spaces")
 SOURCE = "hfspace"
 
 

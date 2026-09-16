@@ -149,11 +149,15 @@ def _rerank(query: str, candidates: list[dict]) -> list[dict]:
         seen.add(k)
         deduped.append(c)
     candidates = deduped
+
     documents = []
     for c in candidates:
         name = _strip_tags(c.get("name") or "")
         cat = _strip_tags(c.get("category") or "")
-        desc = _strip_tags(c.get("description") or "")[:200]
+        # Reuse the shared MAX_DESC_CHARS truncation so huge descriptions
+        # (e.g. APIs.guru specs at 250KB) don't bloat the re-ranker payload;
+        # the same limit guards embed_matrix._api_text.
+        desc = _strip_tags(c.get("description") or "")[:MAX_DESC_CHARS]
         documents.append(f"{name} | {cat} | {desc}")
     scores = None
     threshold = RERANK_THRESHOLD

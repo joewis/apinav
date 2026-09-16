@@ -1,25 +1,141 @@
-"""Normalized embedding-matrix cache for fast numpy cosine ranking.
+"""Embedding layer: NVIDIA vectorization + normalized numpy cache for fast ranking.
 
-The cache mirrors the `embeddings` table (id list + row-normalized float32
-matrix). Grows INCREMENTALLY: `append()` adds newly-embedded rows in
-milliseconds (normalize one vector, np.append, atomic replace) instead of
-the ~16s full reparse rebuild. Deletions never invalidate: orphaned vectors
-(apis row deleted after cache build) drop out at row-fetch time in the
-search fast path. The full rebuild only fires when the cache is missing,
-corrupt, or otherwise unresolvable — the self-healing path of last resort.
+Two responsibilities live here because both touch the same data (the
+`embeddings` table):
+
+1. Backfill (`embed_all`): batch-embed catalog rows that have no vector yet,
+   using NVIDIA nemotron-3-embed-1b (2048-dim). Resumable, batched, polite.
+2. Search cache (`build`/`append`/`load_fresh`): a row-normalized float32
+   matrix + id list mirroring the `embeddings` table. Grows incrementally so
+   semantic search runs in ~0.08s instead of ~31s of pure-Python cosine.
 
 Measured 2026-09-11: pure-Python cosine over 46k x 2048 = 31.5s; numpy on
 the cached matrix = 0.08s; matrix reload from disk = 0.04s; full rebuild
 ~16.5s vs append ~0.05s/row.
 """
+import argparse
 import json
 import os
+import sys
+import time
+import urllib.request
 
 import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import schema
 
 MATRIX_PATH = "/home/carl/apinav/embed_matrix.npy"
 IDS_PATH = "/home/carl/apinav/embed_ids.json"
 
+EMBED_URL = "https://integrate.api.nvidia.com/v1/embeddings"
+EMBED_MODEL = "nvidia/nemotron-3-embed-1b"
+BATCH_SIZE = 32
+BASE_DELAY = 0.5          # seconds between batches
+MAX_RETRIES = 5
+RETRY_BACKOFF = 2.0
+MAX_DESC_CHARS = 4000     # truncate descriptions to avoid NVIDIA 400 on huge specs
+ENV_PATH = "/home/carl/.hermes/.env"
+
+
+def _load_key() -> str:
+    with open(ENV_PATH) as f:
+        for line in f:
+            if line.startswith("NVIDIA_API_KEY="):
+                return line.split("=", 1)[1].strip().strip('"').strip("'")
+    raise RuntimeError("NVIDIA_API_KEY not found in " + ENV_PATH)
+
+
+def _embed_batch(key: str, texts: list[str]) -> list[list[float]]:
+    body = json.dumps({"model": EMBED_MODEL, "input": texts}).encode()
+    req = urllib.request.Request(
+        EMBED_URL,
+        data=body,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=60) as r:
+        data = json.loads(r.read())
+    by_index = {d["index"]: d["embedding"] for d in data["data"]}
+    return [by_index[i] for i in range(len(texts))]
+
+
+def _api_text(api: dict) -> str:
+    """Compose the text to embed for one API.
+
+    Truncate the description to MAX_DESC_CHARS — some APIs.guru specs carry
+    huge descriptions (up to 250KB) that exceed NVIDIA's embedding input
+    limit and cause HTTP 400.
+    """
+    parts = [api.get("name") or ""]
+    if api.get("description"):
+        parts.append(api["description"][:MAX_DESC_CHARS])
+    if api.get("category"):
+        parts.append(api["category"])
+    return "\n".join(parts)
+
+
+def embed_all(conn=None, limit: int | None = None) -> int:
+    """Backfill embeddings for catalog rows that have no vector yet.
+
+    Returns the number of rows newly embedded. Opens its own connection if
+    none is provided.
+    """
+    close_conn = conn is None
+    if conn is None:
+        schema.init_db()
+        conn = schema.get_conn()
+
+    key = _load_key()
+    print(f"Using model {EMBED_MODEL} (2048-dim).")
+
+    rows = conn.execute(
+        """SELECT a.id, a.name, a.description, a.category
+           FROM apis a LEFT JOIN embeddings e ON a.id = e.api_id
+           WHERE e.api_id IS NULL"""
+    ).fetchall()
+    if limit:
+        rows = rows[:limit]
+    print(f"{len(rows)} APIs to embed.")
+
+    done = 0
+    for i in range(0, len(rows), BATCH_SIZE):
+        batch = rows[i : i + BATCH_SIZE]
+        texts = [_api_text(dict(r)) for r in batch]
+        ids = [r["id"] for r in batch]
+
+        vectors = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                vectors = _embed_batch(key, texts)
+                break
+            except Exception as e:
+                wait = RETRY_BACKOFF ** attempt
+                print(f"  batch {i//BATCH_SIZE} attempt {attempt+1} failed ({e}); retry in {wait:.0f}s")
+                time.sleep(wait)
+        if vectors is None:
+            print(f"Giving up on batch {i//BATCH_SIZE} after {MAX_RETRIES} retries.")
+            continue
+
+        conn.execute("BEGIN")
+        for api_id, vec in zip(ids, vectors):
+            schema.set_embedding(conn, api_id, EMBED_MODEL, vec)
+        conn.commit()
+
+        # Incrementally grow the search cache for the new rows.
+        append(conn, ids)
+
+        done += len(batch)
+        print(f"embedded {done}/{len(rows)} (batch {i//BATCH_SIZE})")
+        time.sleep(BASE_DELAY)
+
+    if close_conn:
+        total = schema.count_embedded(conn)
+        conn.close()
+        print(f"Done. Embedded {total} total.")
+    return done
+
+
+# --- normalized matrix cache ------------------------------------------------
 
 def _atomic_write(mat, ids):
     tmp_m = MATRIX_PATH + ".rebuild.npy"  # ends with .npy: np.save won't append
@@ -106,3 +222,12 @@ def load_fresh(conn):
         except Exception:
             pass
     return build(conn)
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser(
+        description="Backfill embeddings for un-embedded catalog rows."
+    )
+    ap.add_argument("--limit", type=int, default=None, help="max APIs to embed (test)")
+    args = ap.parse_args()
+    embed_all(limit=args.limit)

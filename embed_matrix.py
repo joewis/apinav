@@ -36,15 +36,6 @@ BASE_DELAY = config.get("embeddings", "base_delay")
 MAX_RETRIES = config.get("embeddings", "max_retries")
 RETRY_BACKOFF = config.get("embeddings", "retry_backoff")
 MAX_DESC_CHARS = config.get("embeddings", "max_desc_chars")
-ENV_PATH = str(config.ENV_FILE)
-
-
-def _load_key() -> str:
-    with open(ENV_PATH) as f:
-        for line in f:
-            if line.startswith("NVIDIA_API_KEY="):
-                return line.split("=", 1)[1].strip().strip('"').strip("'")
-    raise RuntimeError("NVIDIA_API_KEY not found in " + ENV_PATH)
 
 
 def _embed_batch(key: str, texts: list[str]) -> list[list[float]]:
@@ -86,7 +77,7 @@ def embed_all(conn=None, limit: int | None = None) -> int:
         schema.init_db()
         conn = schema.get_conn()
 
-    key = _load_key()
+    key = config.secret('NVIDIA_API_KEY')
     print(f"Using model {EMBED_MODEL} (2048-dim).")
 
     rows = conn.execute(

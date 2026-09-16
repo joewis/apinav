@@ -32,3 +32,27 @@ def get(*keys, default=None):
 APINAV_DIR = Path(get("paths", "apinav_dir", default="/home/carl/apinav"))
 ENV_FILE = Path(get("paths", "env_file", default="/home/carl/.hermes/.env"))
 DB_PATH = Path(get("paths", "db", default="/home/carl/apinav/catalog.db"))
+
+# --- Secrets (kept in .env, never in config.yaml) --------------------------
+# Each key is a dotenv VAR_NAME. `secret("NVIDIA_API_KEY")` reads it from the
+# env file at import; caller is responsible for the env var name.
+_SECRETS: dict[str, str | None] = {}
+
+
+def _load_secret(name: str) -> str | None:
+    try:
+        with open(ENV_FILE) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith(name + "="):
+                    return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except Exception:
+        return None
+    return None
+
+
+def secret(name: str) -> str | None:
+    """Look up a dotenv secret by its VAR_NAME."""
+    if name not in _SECRETS:
+        _SECRETS[name] = _load_secret(name)
+    return _SECRETS[name]

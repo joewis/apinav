@@ -35,7 +35,6 @@ server = MCPServer("apinav-mcp", "1.0.0")
 
 EMBED_URL = config.get("embeddings", "url")
 EMBED_MODEL = config.get("embeddings", "model")
-ENV_PATH = str(config.ENV_FILE)
 RERANK_URL = config.get("rerank", "url")
 RERANK_MODEL = config.get("rerank", "model")
 RERANK_TOP_N = config.get("rerank", "top_n")
@@ -96,14 +95,6 @@ def _direction_penalty(query: str, candidate: dict):
         return 0.0
     return None
 
-def _load_rerank_key() -> str:
-    with open(ENV_PATH) as f:
-        for line in f:
-            if line.startswith("OPENROUTER_API_KEY="):
-                return line.split("=", 1)[1].strip().strip('"').strip("'")
-    raise RuntimeError("OPENROUTER_API_KEY not found")
-
-
 def _rerank_endpoint(query: str, documents: list[str]) -> list[float]:
     """Rerank via the configured rerank endpoint (Cohere shape) → scores by index.
 
@@ -119,7 +110,7 @@ def _rerank_endpoint(query: str, documents: list[str]) -> list[float]:
         RERANK_URL,
         data=body,
         headers={
-            "Authorization": f"Bearer {_load_rerank_key()}",
+            "Authorization": f"Bearer {config.secret('OPENROUTER_API_KEY')}",
             "Content-Type": "application/json",
         },
     )
@@ -195,16 +186,8 @@ def _rerank(query: str, candidates: list[dict]) -> list[dict]:
     return candidates
 
 
-def _load_key() -> str:
-    with open(ENV_PATH) as f:
-        for line in f:
-            if line.startswith("NVIDIA_API_KEY="):
-                return line.split("=", 1)[1].strip().strip('"').strip("'")
-    raise RuntimeError("NVIDIA_API_KEY not found")
-
-
 def _embed_query(text: str) -> list[float]:
-    key = _load_key()
+    key = config.secret('NVIDIA_API_KEY')
     body = json.dumps({"model": EMBED_MODEL, "input": [text]}).encode()
     req = urllib.request.Request(
         EMBED_URL,
@@ -282,7 +265,7 @@ def _embed_apis(api_ids: list[str]) -> int:
     """Embed a list of API ids (by id) with NVIDIA. Returns count embedded."""
     if not api_ids:
         return 0
-    key = _load_key()
+    key = config.secret('NVIDIA_API_KEY')
     conn = schema.get_conn()
     done = 0
     # batch by 32

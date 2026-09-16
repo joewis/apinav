@@ -186,17 +186,7 @@ def embed_new_rows(added_ids: list[str]) -> int:
     import json as _json
     import urllib.request
 
-    key = None
-    import os
-    env = os.environ.get("NVIDIA_API_KEY")
-    if not env:
-        try:
-            for line in open(str(config.ENV_FILE)):
-                if line.startswith("NVIDIA_API_KEY="):
-                    env = line.split("=", 1)[1].strip()
-                    break
-        except Exception:
-            return 0
+    env = config.secret('NVIDIA_API_KEY')
     if not env:
         return 0
     EMBED_URL = config.get("embeddings", "url")

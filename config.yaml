@@ -16,10 +16,10 @@ embeddings:
   max_desc_chars: 4000
 
 rerank:
-  openrouter_url: https://openrouter.ai/api/v1/rerank
-  openrouter_model: nvidia/llama-nemotron-rerank-vl-1b-v2:free
+  url: https://openrouter.ai/api/v1/rerank
+  model: nvidia/llama-nemotron-rerank-vl-1b-v2:free
   top_n: 100
-  threshold_openrouter: 0.02
+  threshold: 0.02
 
 search:
   fts_prepass_n: 30

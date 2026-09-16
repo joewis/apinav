@@ -36,11 +36,11 @@ server = MCPServer("apinav-mcp", "1.0.0")
 EMBED_URL = config.get("embeddings", "url")
 EMBED_MODEL = config.get("embeddings", "model")
 ENV_PATH = str(config.ENV_FILE)
-OR_RERANK_URL = config.get("rerank", "openrouter_url")
-OR_RERANK_MODEL = config.get("rerank", "openrouter_model")
+RERANK_URL = config.get("rerank", "url")
+RERANK_MODEL = config.get("rerank", "model")
 RERANK_TOP_N = config.get("rerank", "top_n")
 FTS_PREPASS_N = config.get("search", "fts_prepass_n")
-OR_THRESHOLD = config.get("rerank", "threshold_openrouter")
+RERANK_THRESHOLD = config.get("rerank", "threshold")
 
 
 # --- Near-duplicate suppression (UAT 2026-09-10, Kiko) ----------------------
@@ -96,7 +96,7 @@ def _direction_penalty(query: str, candidate: dict):
         return 0.0
     return None
 
-def _load_or_key() -> str:
+def _load_rerank_key() -> str:
     with open(ENV_PATH) as f:
         for line in f:
             if line.startswith("OPENROUTER_API_KEY="):
@@ -104,28 +104,28 @@ def _load_or_key() -> str:
     raise RuntimeError("OPENROUTER_API_KEY not found")
 
 
-def _rerank_openrouter(query: str, documents: list[str]) -> list[float]:
-    """Rerank via OpenRouter (Cohere shape) → relevance scores by index.
+def _rerank_endpoint(query: str, documents: list[str]) -> list[float]:
+    """Rerank via the configured rerank endpoint (Cohere shape) → scores by index.
 
-    PRIMARY reranker (Joerg 2026-09-11). Returns scores aligned with
-    `documents` order. Raises on failure — caller decides the fallback.
+    Returns scores aligned with `documents` order. Raises on failure — caller
+    decides the fallback.
     """
     body = json.dumps({
-        "model": OR_RERANK_MODEL,
+        "model": RERANK_MODEL,
         "query": query,
         "documents": documents,
     }).encode()
     req = urllib.request.Request(
-        OR_RERANK_URL,
+        RERANK_URL,
         data=body,
         headers={
-            "Authorization": f"Bearer {_load_or_key()}",
+            "Authorization": f"Bearer {_load_rerank_key()}",
             "Content-Type": "application/json",
         },
     )
     with urllib.request.urlopen(req, timeout=120) as r:
         data = json.loads(r.read())
-    # OR returns [{"index": i, "relevance_score": s}, ...] — unranked order
+    # Endpoint returns [{"index": i, "relevance_score": s}, ...] — unranked order
     scores = [0.0] * len(documents)
     for x in data.get("results", []):
         i = x.get("index")
@@ -137,8 +137,9 @@ def _rerank_openrouter(query: str, documents: list[str]) -> list[float]:
 def _rerank(query: str, candidates: list[dict]) -> list[dict]:
     """Rerank candidate API summaries by cross-encoder relevance.
 
-    PRIMARY: OpenRouter nemotron-rerank. On failure, falls back to unchanged
-    (cosine) order. Scores below the OR junk floor (~0.02) are dropped.
+    PRIMARY: the configured cross-encoder endpoint. On failure, falls back to
+    unchanged (cosine) order. Scores below the endpoint junk floor (~0.02) are
+    dropped.
     """
     if not candidates:
         return candidates
@@ -160,11 +161,11 @@ def _rerank(query: str, candidates: list[dict]) -> list[dict]:
         cat = _strip_tags(c.get("category") or "")
         desc = _strip_tags(c.get("description") or "")[:200]
         documents.append(f"{name} | {cat} | {desc}")
-    # --- OpenRouter rerank, fall back to cosine order on failure ----------
+    # --- Rerank via the configured endpoint, fall back to cosine order -----
     scores = None
-    threshold = OR_THRESHOLD
+    threshold = RERANK_THRESHOLD
     try:
-        scores = _rerank_openrouter(query, documents)
+        scores = _rerank_endpoint(query, documents)
     except Exception:
         return candidates  # keep cosine order
     if scores is None or len(scores) != len(candidates):

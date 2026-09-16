@@ -154,10 +154,7 @@ def _rerank(query: str, candidates: list[dict]) -> list[dict]:
     for c in candidates:
         name = _strip_tags(c.get("name") or "")
         cat = _strip_tags(c.get("category") or "")
-        # Reuse the shared MAX_DESC_CHARS truncation so huge descriptions
-        # (e.g. APIs.guru specs at 250KB) don't bloat the re-ranker payload;
-        # the same limit guards embed_matrix._api_text.
-        desc = _strip_tags(c.get("description") or "")[:MAX_DESC_CHARS]
+        desc = _strip_tags(c.get("description") or "")[:200]
         documents.append(f"{name} | {cat} | {desc}")
     scores = None
     threshold = RERANK_THRESHOLD
@@ -504,7 +501,12 @@ async def apinav_semantic_search(query: str, limit: int = 10) -> str:
         try:
             candidates = _rerank(query, candidates)
             reranked = True
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "rerank endpoint failed: %s %s, falling back to cosine order",
+                type(e).__name__, e,
+            )
             pass
         t_rerank_done = time.time()
         out = candidates[:limit]

@@ -1,10 +1,4 @@
-"""Shared SQLite schema for the API catalog index.
-
-Tables:
-- apis: one row per API (id, name, description, slug, pricing, category, scores, author, updated)
-- embeddings: one row per API embedding (api_id -> 2048-dim float vector, stored as JSON)
-- apis_fts: FTS5 virtual table for keyword search over name+description+category
-"""
+"""Shared SQLite schema for the API catalog index."""
 import json
 import os
 import sqlite3
@@ -81,14 +75,9 @@ def init_db() -> None:
 
 
 def upsert_api(conn: sqlite3.Connection, api: dict) -> None:
-    """Insert or replace one API row. `api` is the GraphQL node dict.
-
-    If the node carries an `endpoint_count` (from a detail fetch), it is
-    stored; otherwise the existing value is preserved (INSERT OR REPLACE would
-    otherwise reset it to -1 on every re-sight)."""
+    """Insert or replace one API row."""
     score = api.get("score") or {}
     user = api.get("user") or {}
-    # Preserve existing endpoint_count unless the node explicitly provides one
     existing = conn.execute(
         "SELECT endpoint_count FROM apis WHERE id=?", (api.get("id"),)
     ).fetchone()
@@ -97,7 +86,6 @@ def upsert_api(conn: sqlite3.Connection, api: dict) -> None:
         ep = existing["endpoint_count"]
     if ep is None:
         ep = -1
-    # Preserve existing source unless the node explicitly provides one
     src = api.get("source")
     if src is None and existing is not None:
         src = existing["source"]

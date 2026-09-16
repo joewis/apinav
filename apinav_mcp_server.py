@@ -330,7 +330,7 @@ def _is_spam(row) -> bool:
 
 
 def _api_summary(row) -> dict:
-    import source_links as sl
+    from plugins import build_links
     d = {
         "id": row["id"],
         "name": row["name"],
@@ -345,12 +345,9 @@ def _api_summary(row) -> dict:
         "endpoint_count": row["endpoint_count"],
         "source": row["source"],
     }
-    # Resolve docs/spec links from the source_links table (per-source templates,
-    # no per-API URL column). Missing links just stay absent.
+    # Resolve docs/spec links from the owning plugin. Missing links stay absent.
     try:
-        conn = schema.get_conn()
-        links = sl.build_links(conn, row)
-        conn.close()
+        links = build_links(dict(row))
         d["links"] = {k: v for k, v in links.items() if v}
     except Exception:
         pass
@@ -610,37 +607,26 @@ async def apinav_semantic_search(query: str, limit: int = 10) -> str:
             pass
         live_merged = len(plugin_nodes)
         if plugin_nodes:
-            link_conn = schema.get_conn()
-            try:
-                for n in plugin_nodes:
-                    if n["id"] in seen or _is_spam(n):
-                        continue
-                    if _direction_penalty(query, n) is not None:
-                        continue
-                    k = _dedup_key(n)
-                    if k in seen_names:
-                        continue
-                    try:
-                        import source_links
-                        # live plugin summaries carry their docs URL on the
-                        # node (humanURL) — pass a synthetic raw so the
-                        # per-source source_links tokens resolve live.
-                        links = source_links.build_links(
-                            link_conn,
-                            {**n, "raw": json.dumps({
-                                "humanURL": n.get("humanURL"),
-                                "baseURL": n.get("baseURL"),
-                            })},
-                        )
-                        if any(links.values()):
-                            n["links"] = {nk: v for nk, v in links.items() if v}
-                    except Exception:
-                        pass
-                    seen_names.add(k)
-                    candidates.append(n)
-                    seen.add(n["id"])
-            finally:
-                link_conn.close()
+            for n in plugin_nodes:
+                if n["id"] in seen or _is_spam(n):
+                    continue
+                if _direction_penalty(query, n) is not None:
+                    continue
+                k = _dedup_key(n)
+                if k in seen_names:
+                    continue
+                try:
+                    from plugins import build_links
+                    # live plugin summaries carry their docs URL on the
+                    # node (humanURL) — the owning plugin resolves links.
+                    links = build_links(n)
+                    if any(links.values()):
+                        n["links"] = {nk: v for nk, v in links.items() if v}
+                except Exception:
+                    pass
+                seen_names.add(k)
+                candidates.append(n)
+                seen.add(n["id"])
 
         # --- 2c. ORGANIC GROWTH: persist novel live rows (Joerg 2026-09-15) --
         # Live results that passed the gates AND were never seen before are
@@ -711,12 +697,10 @@ async def apinav_get_api(identifier: str) -> str:
             return json.dumps({"error": f"no API found for '{identifier}'"})
         d = dict(row)
         d["raw"] = json.loads(d["raw"]) if d.get("raw") else None
-        # Per-source docs/spec links from source_links table
+        # Per-source docs/spec links from the owning plugin.
         try:
-            import source_links as sl
-            lconn = schema.get_conn()
-            d["links"] = {k: v for k, v in sl.build_links(lconn, row).items() if v}
-            lconn.close()
+            from plugins import build_links
+            d["links"] = {k: v for k, v in build_links(d).items() if v}
         except Exception:
             pass
         return json.dumps(d)

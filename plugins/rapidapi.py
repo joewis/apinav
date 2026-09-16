@@ -6,7 +6,7 @@ merged into the candidate pool before reranking; novel ids are persisted by
 ingest.py (organic growth). No batch jobs: only what a search asks for.
 
 Quality signals: popularity score, latency, success rate (when provided).
-Docs link = source catalog page when resolvable by source_links.
+Docs link = source catalog page when resolvable by the plugin's build_links().
 """
 import sys, os
 sys.path.insert(0, __import__('os').path.dirname(__file__))
@@ -58,3 +58,9 @@ def _normalize(a: dict) -> dict:
         "latency_ms": score.get("avgLatency"),
         "success_rate": score.get("avgSuccessRate"),
     }
+
+
+def build_links(row: dict) -> dict:
+    """RapidAPI docs URLs need the author's username; we don't have a stable
+    template, so return empty. Live rows may carry humanURL if available."""
+    return {"url_docs": row.get("humanURL"), "url_spec_json": None, "url_spec_yaml": None}

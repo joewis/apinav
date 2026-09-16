@@ -53,10 +53,9 @@ platform (the repo itself is agent-authored, from schema to this README).
 | `embed_matrix.py` | Incremental numpy vector cache (append per new embedding) |
 | `embed_catalog.py` | Embedding backfill utility for rows pending vectors |
 | `prefilter_spam.py` | Maintenance utility: remove known junk patterns from the catalog |
-| `source_links.py` | Per-source docs/spec URL resolution |
 | `sources.py` | Source registry: cadence, delta strategy, freshness report |
 | `rebuild_fts.py` | Rebuild the FTS5 index after schema changes |
-| `apinav.py` | Gateway registration helper |
+| `apinav.py` | CLI and gateway registration helper |
 
 ## Plugin contract
 
@@ -66,6 +65,10 @@ Every live plugin has the same shape:
 def search(query: str, limit: int = 5) -> list[dict]:
     # plain HTTP GET (or optional local client), polite pacing via plugins/base
     # returns rows normalized to the apinav node shape with a `source` tag
+
+def build_links(row: dict) -> dict:
+    # optional: return {"url_docs": ..., "url_spec_json": ..., "url_spec_yaml": ...}
+    # for the row's source. The MCP server dispatches through plugins.build_links().
 ```
 
 - Polite pacing (default 0.5 s between calls per source)
@@ -74,6 +77,7 @@ def search(query: str, limit: int = 5) -> list[dict]:
 - Results are overlays: fetched per query, merged before rerank — and novel
   ids among them are persisted by `ingest.py` (idempotent, lock-safe,
   best-effort: a locked or failed persist never blocks the query)
+- Link resolution is owned by the plugin that owns the `source` tag
 
 A plugin that needs a non-public client (e.g. a session-based marketplace
 client) loads it as an optional local module named `marketplace_client.py`

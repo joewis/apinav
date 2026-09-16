@@ -17,3 +17,29 @@ Sources (all probe-verified 2026-09-11):
 - googledisc — 531 official Google APIs, static list fetched+filtered
 - hfspace  — HF Spaces demos, ?search= param, likes as quality signal
 """
+
+import importlib
+
+
+def build_links(row: dict) -> dict:
+    """Dispatch link resolution to the plugin that owns the row's source.
+
+    Returns {"url_docs": ..., "url_spec_json": ..., "url_spec_yaml": ...}.
+    Missing/unsupported sources return all-None. Never raises.
+    """
+    out = {"url_docs": None, "url_spec_json": None, "url_spec_yaml": None}
+    source = (row.get("source") or "").lower()
+    if not source:
+        return out
+    try:
+        mod = importlib.import_module(f"plugins.{source}")
+        fn = getattr(mod, "build_links", None)
+        if fn is None:
+            return out
+        links = fn(row)
+        if isinstance(links, dict):
+            out.update({k: links.get(k) for k in out})
+    except Exception:
+        pass
+    return out
+

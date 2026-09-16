@@ -59,3 +59,11 @@ def _normalize(it: dict) -> dict:
         "humanURL": it.get("documentationLink"),
         "spec_url": it.get("discoveryRestUrl"),
     }
+
+
+def build_links(row: dict) -> dict:
+    return {
+        "url_docs": row.get("humanURL"),
+        "url_spec_json": row.get("spec_url"),
+        "url_spec_yaml": None,
+    }

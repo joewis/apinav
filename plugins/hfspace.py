@@ -38,3 +38,11 @@ def _normalize(s: dict) -> dict:
         "likes": s.get("likes"),
         "humanURL": f"https://huggingface.co/spaces/{sid}",
     }
+
+
+def build_links(row: dict) -> dict:
+    return {
+        "url_docs": row.get("humanURL"),
+        "url_spec_json": None,
+        "url_spec_yaml": None,
+    }

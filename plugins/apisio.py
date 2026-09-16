@@ -110,3 +110,12 @@ def search(query: str, limit: int = 5) -> list[dict]:
     except Exception:
         pass
     return out[:limit]
+
+
+def build_links(row: dict) -> dict:
+    """apis.io rows carry humanURL (docs) and baseURL (spec endpoint base)."""
+    return {
+        "url_docs": row.get("humanURL") or row.get("baseURL"),
+        "url_spec_json": row.get("spec_url"),
+        "url_spec_yaml": None,
+    }

@@ -85,11 +85,37 @@ def _normalize(api_key: str, entry: dict, info: dict, endpoint_count: int = -1) 
         "endpoint_count": endpoint_count,
         "source": SOURCE,
         "author": api_key.split(":")[0] if ":" in api_key else None,
-        # Extras for source_links.py (it already has an apisguru fast path)
         "humanURL": info.get("swagger_url"),
         "spec_url": info.get("swagger_url"),
         "swaggerYamlUrl": info.get("swagger_yaml_url"),
     }
+
+
+def build_links(row: dict) -> dict:
+    """Resolve APIs.guru spec URLs from the cached listing.
+
+    ids come in two shapes (verified 2026-09-10 against live list.json):
+      'domain:Service'  -> spec path /<domain>/<service>/<version>/openapi.json
+      'domain'          -> spec path /<domain>/<version>/swagger.json (2 parts!)
+    The listing entry itself carries the authoritative swaggerUrl — prefer it
+    verbatim; template fallback only when absent.
+    """
+    api_id = row.get("id") or ""
+    entry = _list().get(api_id) or {}
+    if not entry:
+        return {"url_docs": None, "url_spec_json": None, "url_spec_yaml": None}
+    info = _entry_info(api_id, entry)
+    sw = info.get("swagger_url") or ""
+    sw_yaml = info.get("swagger_yaml_url") or ""
+    out = {"url_docs": sw or None, "url_spec_json": None, "url_spec_yaml": None}
+    if sw and "/openapi." in sw:
+        out["url_spec_json"] = sw
+        out["url_spec_yaml"] = sw_yaml or None
+    else:
+        out["url_spec_json"] = sw or None
+        out["url_spec_yaml"] = sw_yaml or None
+    return out
+
 
 
 def search(query: str, limit: int = 5) -> list[dict]:

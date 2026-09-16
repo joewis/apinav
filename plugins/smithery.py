@@ -43,7 +43,15 @@ def _normalize(s: dict) -> dict:
         "author": (s.get("owner") or {}).get("name") if isinstance(s.get("owner"), dict) else s.get("owner"),
         "use_count": s.get("useCount"),
         "verified": s.get("verified"),
-        # extras for live link resolution (source_links token: {homepage})
+        # extras for live link resolution
         "homepage": s.get("homepage"),
         "humanURL": s.get("homepage"),
+    }
+
+
+def build_links(row: dict) -> dict:
+    return {
+        "url_docs": row.get("humanURL") or row.get("homepage"),
+        "url_spec_json": None,
+        "url_spec_yaml": None,
     }

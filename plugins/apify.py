@@ -38,3 +38,11 @@ def _normalize(a: dict) -> dict:
         "total_runs": stats.get("totalRuns"),
         "humanURL": f"https://apify.com/{username}/{name}",
     }
+
+
+def build_links(row: dict) -> dict:
+    return {
+        "url_docs": row.get("humanURL"),
+        "url_spec_json": None,
+        "url_spec_yaml": None,
+    }

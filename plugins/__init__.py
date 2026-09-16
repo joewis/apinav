@@ -65,8 +65,10 @@ PLUGINS = _build_registry()
 def search_all(query: str) -> list[dict]:
     """Run every discovered plugin for `query` and merge results.
 
-    Uses per-plugin limits from plugins.yaml. One dead plugin is skipped;
-    RateLimited is propagated so callers can honor Retry-After.
+    Uses per-plugin limits from plugins.yaml. A dead or rate-limited plugin is
+    skipped so it never takes the others down or stalls the whole search — this
+    is a best-effort overlay, not a hard dependency. (Callers needing to honor
+    Retry-After should call a single plugin directly rather than search_all.)
     """
     out = []
     for source, mod in PLUGINS.items():

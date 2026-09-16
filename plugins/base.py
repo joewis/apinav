@@ -1,7 +1,8 @@
-"""Shared plumbing for live-search plugins: HTTP + RateLimited + pacing.
+"""Shared plumbing for live-search plugins: HTTP, pacing, and 429 handling.
 
-Joerg's plugin route (2026-09-11): live results enter the candidate pool
-BEFORE the reranker; novel results are persisted by ingest.py (organic growth) — per-query fetch only.
+Every plugin routes its requests through this so rate-limits are paced and
+respected uniformly, and so one provider answering 429 surfaces as a
+RateLimited that the caller can honor (Retry-After, or just skip).
 """
 import json
 import time
@@ -11,6 +12,7 @@ import urllib.request
 
 import config
 
+# Polite pacing + timeout sourced from central config, not per-plugin.
 UA = {"User-Agent": config.get("http", "user_agent")}
 PACING = config.get("http", "pacing")
 TIMEOUT = config.get("http", "timeout")
@@ -27,10 +29,14 @@ class RateLimited(Exception):
 
 
 def get(url: str, source: str, delay: float = PACING, timeout: int = TIMEOUT) -> dict:
-    """Polite paced GET returning parsed JSON. Raises RateLimited on 429."""
+    """Polite paced GET returning parsed JSON. Raises RateLimited on 429.
+
+    `source` keys the pacing tracker so each provider gets its own timer.
+    """
     now = time.time()
     since = now - _last_call.get(source, 0.0)
     if since < delay:
+        # Space out calls to the same source to stay under its rate cap.
         time.sleep(delay - since)
     req = urllib.request.Request(url, headers=UA)
     try:
@@ -39,6 +45,7 @@ def get(url: str, source: str, delay: float = PACING, timeout: int = TIMEOUT) ->
             return json.load(r)
     except urllib.error.HTTPError as e:
         if e.code == 429:
+            # Honor Retry-After when the provider gives one (seconds).
             ra = e.headers.get("Retry-After") if e.headers else None
             seconds = int(ra) if (ra and ra.isdigit()) else None
             raise RateLimited(seconds, source) from None

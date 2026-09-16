@@ -1,4 +1,17 @@
-"""Shared SQLite schema for the API catalog index."""
+"""Shared SQLite schema for the API catalog index.
+
+Tables:
+- apis: one row per API (id, name, description, slug, pricing, category,
+  scores, author, updated, endpoint_count, source, raw node JSON)
+- embeddings: one row per API embedding (api_id -> 2048-dim float vector,
+  stored as a JSON array)
+- apis_fts: FTS5 virtual table over name/description/category/author/slug,
+  kept in sync by triggers so keyword search needs no manual index updates
+
+endpoint_count uses -1 as 'unknown/N-A class' (vs 0 = junk, skipped by the
+gates) so execution-class rows (Apify actors, HF spaces, MCP servers) are
+accepted but not shown as having zero endpoints.
+"""
 import json
 import os
 import sqlite3
@@ -75,7 +88,13 @@ def init_db() -> None:
 
 
 def upsert_api(conn: sqlite3.Connection, api: dict) -> None:
-    """Insert or replace one API row."""
+    """Insert or replace one API row.
+
+    INSERT OR REPLACE wipes the row, so fields that arrive missing must be
+    preserved from the existing row instead of reset. endpoint_count is the
+    classic trap: a re-sighted node often lacks it, and the default (-1) would
+    clobber a real count. source likewise falls back to the stored value.
+    """
     score = api.get("score") or {}
     user = api.get("user") or {}
     existing = conn.execute(

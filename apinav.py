@@ -1,6 +1,8 @@
 #!/home/carl/mcp-gateway-venv/bin/python
-#!/usr/bin/env python3
-"""Command-line search against the local API catalog (via the MCP gateway stdio backend directly).
+"""Command-line search against the local API catalog.
+
+Loads the MCP server module in-process (same code the gateway runs) and calls
+its tools directly, skipping the network for a snappy CLI.
 
 Usage:
   apinav search "find me an API for gold prices"            # semantic (default)
@@ -16,8 +18,7 @@ import config
 
 
 def _load_gateway_meta():
-    """Use the same gateway the MCP server tools run through, but call the
-    apinav backend directly in-process for a snappy CLI experience."""
+    """Load the MCP server module in-process so the CLI shares its exact logic."""
     server_path = str(config.APINAV_DIR / "apinav_mcp_server.py")
     spec = importlib.util.spec_from_file_location("apinav_server", server_path)
     mod = importlib.util.module_from_spec(spec)
@@ -45,10 +46,15 @@ def _pretty(out: str, limit: int | None):
     except Exception:
         print(out)
         return
-    if "error" in d:
+    # apinav_keyword_search returns a bare JSON list of rows; the other tools
+    # return a dict (possibly with "results", or "error").
+    if isinstance(d, list):
+        results = d
+    elif "error" in d:
         print("ERROR:", d["error"])
         return
-    results = d.get("results") or []
+    else:
+        results = d.get("results") or []
     if "total_apis" in d and not results:  # stats
         print(json.dumps(d, indent=1))
         return

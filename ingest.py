@@ -12,8 +12,9 @@ Policy (enforced here):
   EN + VI) — junk never enters the catalog through the live path.
 - Junk gate: nodes with endpoint_count == 0 are skipped (SEO articles).
   endpoint_count == -1 (unknown) is accepted and backfillable later.
-- Dedup: exact-id skip; name+desc-prefix dedup key mirrors the server's
-  _dedup_key so near-duplicate live rows don't spawn catalog twins.
+- Idempotency: exact-id skip on re-sight (upsert would just refresh). Near-dup
+  (name+desc-prefix twin) suppression happens upstream in the server, before
+  this is called, so it isn't repeated here.
 - Upsert: schema.upsert_api (INSERT OR REPLACE, preserves endpoint_count and
   source on re-sight; FTS5 triggers fire automatically).
 - Embeddings: NVIDIA embed + embeddings-table row + embed_matrix.append,
@@ -27,7 +28,6 @@ best-effort, never blocking search).
 """
 import json
 import os
-import re
 import sqlite3
 import sys
 import time
@@ -44,24 +44,7 @@ _PER_SOURCE_CAP = config.get("ingest", "per_source_cap")
 # SQLite busy timeout for the single-writer transaction.
 _BUSY_TIMEOUT_MS = config.get("ingest", "busy_timeout_ms")
 
-# --- tag stripping / dedup helpers (shared shape with the server) -----------
-
-def _strip_tags(s: str) -> str:
-    return re.sub(r"<[^>]+>", "", s or "")
-
-
-def dedup_key(node: dict) -> str:
-    def _norm(s: str) -> str:
-        return re.sub(r"[^a-z0-9]+", "", _strip_tags(s).lower())
-    return _norm(node.get("name")) + "|" + _norm((node.get("description") or "")[:120])
-
-
 # --- persistence ------------------------------------------------------------
-
-# Per-source persistence caps (per call): live results are few; these caps
-# stop a single chatty plugin from flooding the catalog in one query.
-_PER_SOURCE_CAP = 5
-
 
 def persist_plugin_results(nodes: list[dict]) -> dict:
     """Persist novel live plugin nodes into the local catalog.
@@ -94,7 +77,10 @@ def persist_plugin_results(nodes: list[dict]) -> dict:
         pass
 
     try:
-        # Single-writer friendly: one immediate transaction for all adds
+        # Single-writer friendly: one immediate transaction for all adds.
+        # SQLite allows only one writer at a time; BEGIN IMMEDIATE fails fast
+        # with "database is locked" instead of waiting for the 30s default,
+        # and ingest is best-effort so a locked catalog must not stall search.
         conn.execute("BEGIN IMMEDIATE")
         try:
             for nid, n in batch.items():
@@ -132,18 +118,15 @@ def persist_plugin_results(nodes: list[dict]) -> dict:
                     if is_spam(row):
                         stats["spam"] += 1
                         continue
-                    # dedup twin check (name|desc-prefix already in catalog?)
+                    # Idempotency: rows already in the catalog (by id) are
+                    # re-sights — upsert_api would just refresh; skip them.
+                    # (Name/desc-prefix twin dedup already happened upstream in
+                    # the server's seen_names set before this was called.)
                     existing = conn.execute(
                         "SELECT id FROM apis WHERE id=?", (nid,)
                     ).fetchone()
                     if existing:
-                        continue  # known row — upsert_api would just refresh; skip
-                    # name+desc dedup twin check against the catalog itself
-                    k = dedup_key(row)
-                    twin = conn.execute(
-                        "SELECT id FROM apis WHERE name = ? LIMIT 1",
-                        (row.get("name") or "",),
-                    ).fetchone()
+                        continue
                     per_source[src] = per_source.get(src, 0) + 1
                     schema.upsert_api(conn, row)
                     stats["added"] += 1

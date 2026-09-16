@@ -55,7 +55,10 @@ def get_api(aid: str) -> dict | None:
 def _normalize(r: dict) -> dict:
     """Map an apis.io row to the apinav node dict shape (schema.upsert_api keys)."""
     desc = r.get("description") or ""
-    # 'The Balances API from Airwallex — 3 operation(s) for beneficiaries.'
+    # apis.io encodes the endpoint count in the description prose
+    # ("... — 3 operation(s) for beneficiaries."). Parse it out so we can
+    # populate endpoint_count without a dedicated field; fall back to 1 if the
+    # row signals at least one machine artifact, else -1 (unknown class).
     ep_count = None
     marker = "operation(s)"
     if marker in desc:
@@ -64,7 +67,7 @@ def _normalize(r: dict) -> dict:
             ep_count = int(head.split()[-1])
         except (ValueError, IndexError):
             ep_count = None
-    # Fallback: artifact_count hints at least one machine-readable artifact
+    # Fallback: artifact_count hints at least one machine-readable artifact.
     if ep_count is None:
         ep_count = 1 if r.get("artifact_count") else -1
     return {

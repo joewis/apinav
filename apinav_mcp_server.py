@@ -1,11 +1,27 @@
 #!/home/carl/mcp-gateway-venv/bin/python
-"""MCP server exposing the local multi-source API catalog index."""
+"""MCP server exposing the local multi-source API catalog index.
+
+Sources come from two paths that converge in apinav_semantic_search:
+1. The local SQLite catalog (keyword + semantic search over stored rows).
+2. Live directory plugins auto-discovered from plugins/ — per-query overlays
+   merged into the candidate pool BEFORE reranking; novel ids are persisted
+   by ingest.py (organic growth), so the catalog grows during usage.
+
+Tools:
+- apinav_keyword_search: FTS5 keyword search over name/description/category
+- apinav_semantic_search: cosine similarity + live plugin merge + rerank
+- apinav_get_api: fetch one API's full record by id or slug
+- apinav_live_search: search a single live plugin directly (not cached)
+- apinav_catalog_stats: counts + freshness
+
+Secrets (NVIDIA embed key, rerank key) come from config.secret(), sourced
+from the per-host .env file — never hard-coded.
+"""
 import asyncio
 import json
 import math
 import os
 import re
-import subprocess
 import sys
 import time
 import urllib.request
@@ -28,10 +44,19 @@ FTS_PREPASS_N = config.get("search", "fts_prepass_n")
 RERANK_THRESHOLD = config.get("rerank", "threshold")
 
 
-# Near-duplicate suppression: dedupe on normalized (name, description-head).
+# --- Near-duplicate suppression ------------------------------------------------
+# The catalog has many clone rows (same name+description, different slug). Without
+# dedup one bad clone can occupy several top-N slots. Dedupe on normalized
+# (name, description-head), keeping the first occurrence (candidates arrive in
+# cosine order, so the first is the highest-scored). Distinct APIs that share only
+# a name survive, because the description-head differs.
+#
+# Some live sources return <em> highlight tags inside name/category/description;
+# strip them before any matching — they'd otherwise break the regexes and the
+# dedup normalization alike.
 
 def _strip_tags(s: str) -> str:
-    """Strip HTML tags from a string."""
+    """Strip HTML <em>-style tags from a string (may be None)."""
     return re.sub(r"<[^>]+>", "", s or "")
 
 def _dedup_key(c: dict) -> str:
@@ -41,7 +66,12 @@ def _dedup_key(c: dict) -> str:
     return _norm(c.get("name")) + "|" + _norm((c.get("description") or "")[:120])
 
 
-# Audio direction guard: penalize candidates whose audio direction contradicts the query.
+# --- Audio direction guard ------------------------------------------------------
+# The cross-encoder can't reliably tell "text to speech" from "speech to text"
+# (too many shared tokens). Penalize candidates whose audio direction contradicts
+# the query's — the zeroed score drops them below the relevance threshold. Direction
+# is judged on the NAME only: descriptions may legitimately mention both directions
+# for a converter API.
 
 _TTS_RE = re.compile(
     r"\b(text[\s\-_]*(?:to|2)[\s\-_]*(?:spe(?:e|a)ch|voice|audio|sound)|"
@@ -99,9 +129,17 @@ def _rerank_endpoint(query: str, documents: list[str]) -> list[float]:
 
 
 def _rerank(query: str, candidates: list[dict]) -> list[dict]:
-    """Rerank candidate API summaries by cross-encoder relevance."""
+    """Rerank candidate API summaries by cross-encoder relevance.
+
+    Runs over the MERGED pool (local cosine + FTS + live plugins) so all
+    sources compete for top slots on relevance, rather than live results
+    being appended unranked to the tail. Falls back to the input (cosine)
+    order if the endpoint errors or returns a mismatched score count —
+    the caller never fails on a rerank hiccup.
+    """
     if not candidates:
         return candidates
+    # Dedup before reranking so a clone can't crowd out real distinct rows.
     seen = set()
     deduped = []
     for c in candidates:
@@ -219,7 +257,8 @@ def _embed_apis(api_ids: list[str]) -> int:
     key = config.secret('NVIDIA_API_KEY')
     conn = schema.get_conn()
     done = 0
-    # Batch by 32.
+    # Batch (NVIDIA limits per-request size) and append each batch to the numpy
+    # cache as we go, instead of a full 16s rebuild on the next search.
     for i in range(0, len(api_ids), 32):
         batch_ids = api_ids[i : i + 32]
         rows = conn.execute(
@@ -360,6 +399,10 @@ async def apinav_semantic_search(query: str, limit: int = 10) -> str:
         t_cos = time.time()
 
         # Build the candidate pool from cosine similarity and FTS keyword search.
+        # Cosine alone has a recall hole: bi-encoders rank keyword-stuffed
+        # descriptions above terse real ones, so a legit row can sit at cosine
+        # rank ~2000 while junk ranks top-8. FTS/bm25 recovers exact-term hits
+        # the embeddings miss. Both paths feed the SAME rerank pool.
         candidates = []
         for sim, r in scored[:RERANK_TOP_N]:
             s = _api_summary(r)
@@ -395,7 +438,11 @@ async def apinav_semantic_search(query: str, limit: int = 10) -> str:
         conn.close()
         t_cand = time.time()
 
-        # Merge live plugin results into the candidate pool before reranking.
+        # Merge live plugin results into the candidate pool BEFORE reranking,
+        # so the cross-encoder judges the merged set on relevance and live hits
+        # can win top slots. All sources are uniform plugins (auto-discovered
+        # from plugins/, tuned in plugins.yaml). Overlay only — see below for
+        # the organic-growth persistence of novel rows.
         live_merged = 0
         plugin_nodes = []
         try:
@@ -426,6 +473,8 @@ async def apinav_semantic_search(query: str, limit: int = 10) -> str:
                 seen.add(n["id"])
 
         # Persist novel live rows to the local catalog (organic growth).
+        # Best-effort: a lock or failure here never blocks the search — the
+        # rows are still merged into the results, just not persisted yet.
         persisted = 0
         try:
             import sys as _sys

@@ -88,9 +88,41 @@ plugin degrades gracefully to an empty result.
 ## Requirements
 
 - Python 3.11+
-- `openai`-compatible client for embeddings/rerank — API keys read from the
-  environment only (`NVIDIA_API_KEY`, `OPENROUTER_API_KEY`); nothing is hardcoded
+- `openai`-compatible client for embeddings/rerank — API keys are sourced via
+  `config.secret()` from the per-host `.env` file (`NVIDIA_API_KEY`,
+  `OPENROUTER_API_KEY`); nothing is hardcoded in code or `config.yaml`
 - SQLite with FTS5
+
+## Coding standards
+
+This repo is maintained by an autonomous agent, so the bar for readability is
+explicit. Follow these when editing:
+
+**Comments say *why*, not *what*.** The *what* belongs in the code (names,
+control flow). A comment earns its place when it captures tribal knowledge a
+reader would otherwise have to dig out of git history or reverse-engineer:
+
+- Non-obvious data invariants (e.g. `endpoint_count` `-1` = "unknown class", vs
+  `0` = junk).
+- Gotchas that bite (`INSERT OR REPLACE` wipes a row, so preserve missing
+  `endpoint_count`/`source` from the existing row).
+- Rationale for a surprising choice (why FTS pre-pass exists, why live results
+  merge before rerank, why the audio-direction regex judges the name only).
+
+Generic restatements like `# batch by 32` are noise — delete them.
+
+**Names over comments.** Prefer a descriptive identifier over a comment that
+explains a vague one.
+
+**Docstrings are contracts, not history.** State what a function/module does,
+its inputs/outputs, and its invariants. Do not put dates or attributions there —
+that is what git is for.
+
+**Section banners sparingly.** Use `# --- Section ---` only for big logical
+blocks in a long module (the server). Skip them for 3-line helpers.
+
+**Secrets never in config.** Operational settings live in `config.yaml`;
+credentials stay in `.env` and are reached only through `config.secret()`.
 
 ## Status
 

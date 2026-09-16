@@ -1,32 +1,39 @@
-# Source registry for apinav.
-# One entry per live plugin source. cadence is the freshness model; for the
-# current architecture every source is queried live per search (per-query).
+# Plugin registry for apinav.
+# Each plugin is auto-discovered from a .py file in this directory.
+# This YAML only holds configuration/tuning for each discovered plugin.
 
-sources:
+plugins:
   - source: apisio
+    limit: 8
     refresh_cadence: per-query
     drift_notes: "Live plugin: curated + full search per query. Agent-permitted (robots+terms)."
 
   - source: rapidapi
+    limit: 5
     refresh_cadence: per-query
     drift_notes: "Live plugin: per-query search via optional local session client; rate-limit aware with Retry-After handling."
 
   - source: smithery
+    limit: 5
     refresh_cadence: per-query
     drift_notes: "Live plugin: per-query registry search."
 
   - source: apify
+    limit: 4
     refresh_cadence: per-query
     drift_notes: "Live plugin: per-query store search. Execution marketplace (actors), not REST APIs: endpoint gate N/A."
 
   - source: googledisc
+    limit: 3
     refresh_cadence: per-query
     drift_notes: "Live plugin: per-query directory search."
 
   - source: hfspace
+    limit: 3
     refresh_cadence: per-query
     drift_notes: "Live plugin: per-query Spaces search. Demos, not REST APIs: endpoint gate N/A."
 
   - source: apisguru
+    limit: 5
     refresh_cadence: per-query
     drift_notes: "Live plugin: per-query search over APIs.guru directory; endpoint count from spec fetch."

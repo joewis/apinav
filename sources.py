@@ -18,14 +18,22 @@ import yaml
 sys.path.insert(0, "/home/carl/apinav")
 import schema
 
-_CONFIG_PATH = "/home/carl/apinav/sources.yaml"
+_CONFIG_PATH = "/home/carl/apinav/plugins/plugins.yaml"
 
 
 def load_known_sources(path: str = _CONFIG_PATH) -> list[dict]:
-    """Load the source metadata contract from the YAML config."""
+    """Load source metadata from the plugin registry config."""
     with open(path) as f:
         data = yaml.safe_load(f)
-    return data.get("sources", [])
+    plugins = data.get("plugins", [])
+    return [
+        {
+            "source": p["source"],
+            "refresh_cadence": p.get("refresh_cadence"),
+            "drift_notes": p.get("drift_notes"),
+        }
+        for p in plugins
+    ]
 
 
 def init_registry(conn) -> None:

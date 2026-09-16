@@ -13,58 +13,19 @@ import json
 import sqlite3
 import sys
 
+import yaml
+
 sys.path.insert(0, "/home/carl/apinav")
 import schema
 
-# The freshness contract. delta_strategy values:
-#   'updatedAt-cursor' — source supports change-since filtering/pagination
-#   'refetch-all'      — source is small/cheap enough to re-walk fully
-#   'etag'             — conditional GET supported
-#   'none'             — static snapshot
-KNOWN_SOURCES = [
-    {
-        "source": "apisio",
-        "refresh_cadence": "per-query",
-        "delta_strategy": "none",
-        "drift_notes": "Live plugin: curated + full search per query. Agent-permitted (robots+terms).",
-    },
-    {
-        "source": "rapidapi",
-        "refresh_cadence": "per-query",
-        "delta_strategy": "none",
-        "drift_notes": "Live plugin: per-query search via optional local session client; rate-limit aware with Retry-After handling.",
-    },
-    {
-        "source": "smithery",
-        "refresh_cadence": "per-query",
-        "delta_strategy": "none",
-        "drift_notes": "Live plugin: per-query registry search.",
-    },
-    {
-        "source": "apify",
-        "refresh_cadence": "per-query",
-        "delta_strategy": "none",
-        "drift_notes": "Live plugin: per-query store search. Execution marketplace (actors), not REST APIs: endpoint gate N/A.",
-    },
-    {
-        "source": "googledisc",
-        "refresh_cadence": "per-query",
-        "delta_strategy": "none",
-        "drift_notes": "Live plugin: per-query directory search.",
-    },
-    {
-        "source": "hfspace",
-        "refresh_cadence": "per-query",
-        "delta_strategy": "none",
-        "drift_notes": "Live plugin: per-query Spaces search. Demos, not REST APIs: endpoint gate N/A.",
-    },
-    {
-        "source": "apisguru",
-        "refresh_cadence": "per-query",
-        "delta_strategy": "none",
-        "drift_notes": "Live plugin: per-query search over APIs.guru directory; endpoint count from spec fetch.",
-    },
-]
+_CONFIG_PATH = "/home/carl/apinav/sources.yaml"
+
+
+def load_known_sources(path: str = _CONFIG_PATH) -> list[dict]:
+    """Load the source freshness contract from the YAML config."""
+    with open(path) as f:
+        data = yaml.safe_load(f)
+    return data.get("sources", [])
 
 
 def init_registry(conn) -> None:
@@ -81,7 +42,7 @@ def init_registry(conn) -> None:
                drift_notes TEXT
            )"""
     )
-    for s in KNOWN_SOURCES:
+    for s in load_known_sources():
         conn.execute(
             """INSERT OR IGNORE INTO source_registry
                (source, refresh_cadence, delta_strategy, drift_notes)

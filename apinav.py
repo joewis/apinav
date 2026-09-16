@@ -43,14 +43,15 @@ async def _run(mod, cmd, args):
 def _pretty(out: str, limit: int | None):
     """Print a tool's JSON response as a human-readable terminal listing.
 
-    The MCP tools return slightly different JSON shapes depending on which one
-    ran, and the CLI dispatches all of them through here, so this one function
-    has to recognize each shape and render it appropriately:
+    This is the DISPATCH layer for the CLI: it figures out which of the
+    several output shapes a tool returned and how to render it, leaving the
+    per-row formatting to _render_row():
 
       - keyword search  -> a bare JSON array of result rows
       - semantic search -> a dict with a "results" list (plus timing/stats keys)
       - stats / get     -> a dict but NOT a list-backed result set; print raw
       - any tool error  -> a dict with an "error" key; surface it loudly
+      - non-list rows   -> each rendered via _render_row()
 
     For list-backed results it renders each row as a compact terminal line:
     similarity score (right-aligned), name, pricing, endpoint count, a wrapped
@@ -91,36 +92,49 @@ def _pretty(out: str, limit: int | None):
             if remaining:
                 print(f"  ... {remaining} more")
             break
-        import re
-        # Live sources wrap terms in <em> tags ("<em>Weather</em>"); strip them
-        # so the terminal line reads clean, even when a name is only a tag.
-        name = re.sub(r"<[^>]+>", "", r.get("name") or "?")
-        desc = (r.get("description") or "")[:150].replace("\n", " ")
-        desc = re.sub(r"<[^>]+>", "", desc)
-        # Prefix the similarity score only when the row actually has one
-        # (cosine similarity from semantic search); keyword rows don't.
-        sim = r.get("similarity")
-        sim_s = f"{sim:6.3f}  " if isinstance(sim, (int, float)) else ""
-        line = f"{sim_s}{name}"
-        if r.get("pricing"):
-            line += f"  [{r['pricing']}]"
-        # endpoint_count -1 means 'unknown/N-A class' (e.g. an MCP server or
-        # Apify actor, which aren't REST APIs) — only show it when real.
-        ep = r.get("endpoint_count")
-        if isinstance(ep, (int, float)) and ep >= 0:
-            line += f"  ({ep} endpoints)"
-        print(line)
-        if desc:
-            print(f"        {desc}")
-        links = r.get("links") or {}
-        # Docs/spec URLs, if the owning plugin resolved any for this row.
-        if links.get("url_docs"):
-            print(f"        docs: {links['url_docs']}")
-        if links.get("url_spec_json"):
-            print(f"        spec: {links['url_spec_json']}")
-        if links.get("url_spec_yaml"):
-            print(f"        yaml: {links['url_spec_yaml']}")
+        for line in _render_row(r):
+            print(line)
         shown += 1
+
+
+def _render_row(r: dict) -> list[str]:
+    """Format one API result row into the terminal lines to print.
+
+    Handles only the per-row shape, separate from _pretty's job of deciding
+    which rows to print. Returns the lines (main + any description/docs/spec),
+    so the caller controls interleaving and the truncation tail. No output is
+    written here — the caller prints.
+    """
+    import re
+    # Live sources wrap terms in <em> tags ("<em>Weather</em>"); strip them
+    # so the terminal line reads clean, even when a name is only a tag.
+    name = re.sub(r"<[^>]+>", "", r.get("name") or "?")
+    desc = (r.get("description") or "")[:150].replace("\n", " ")
+    desc = re.sub(r"<[^>]+>", "", desc)
+    # Prefix the similarity score only when the row actually has one
+    # (cosine similarity from semantic search); keyword rows don't.
+    sim = r.get("similarity")
+    sim_s = f"{sim:6.3f}  " if isinstance(sim, (int, float)) else ""
+    line = f"{sim_s}{name}"
+    if r.get("pricing"):
+        line += f"  [{r['pricing']}]"
+    # endpoint_count -1 means 'unknown/N-A class' (e.g. an MCP server or
+    # Apify actor, which aren't REST APIs) — only show it when real.
+    ep = r.get("endpoint_count")
+    if isinstance(ep, (int, float)) and ep >= 0:
+        line += f"  ({ep} endpoints)"
+    out = [line]
+    if desc:
+        out.append(f"        {desc}")
+    links = r.get("links") or {}
+    # Docs/spec URLs, if the owning plugin resolved any for this row.
+    if links.get("url_docs"):
+        out.append(f"        docs: {links['url_docs']}")
+    if links.get("url_spec_json"):
+        out.append(f"        spec: {links['url_spec_json']}")
+    if links.get("url_spec_yaml"):
+        out.append(f"        yaml: {links['url_spec_yaml']}")
+    return out
 
 
 def main():

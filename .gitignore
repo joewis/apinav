@@ -1,1 +1,12 @@
-Nothing should be ignored based on the provided file changes. The modified files (`apinav_mcp_server.py` and `schema.py`) are source code files that should not be added to .gitignore. Since there are no build artifacts, dependencies, or temporary files in the changes, no additional ignore rules are needed.
+__pycache__/
+*.pyc
+*.db
+*.npy
+embed_ids.json
+cache/
+backups/
+logs/
+# private live-marketplace client (deliberately not published)
+rapidapi_client.py
+marketplace_client.py
+camofox*

@@ -9,6 +9,7 @@ Usage:
   apinav keyword "weather"                                  # FTS5 keyword search
   apinav get adyen.com:AccountService                       # full record incl. links
   apinav stats                                              # catalog totals
+  apinav source <plugin> "query"                          # test one plugin directly
 """
 import sys
 import json
@@ -26,7 +27,7 @@ def _load_gateway_meta():
     return mod
 
 
-async def _run(mod, cmd, args):
+async def _run(mod, cmd, args, limit=None):
     if cmd == "search":
         out = await mod.apinav_semantic_search(args[0])
     elif cmd == "keyword":
@@ -35,8 +36,20 @@ async def _run(mod, cmd, args):
         out = await mod.apinav_get_api(args[0])
     elif cmd == "stats":
         out = await mod.apinav_catalog_stats()
+    elif cmd == "source":
+        if len(args) < 2:
+            out = json.dumps({"error": "usage: apinav source <plugin> <query>"})
+        else:
+            plugin_name, query = args[0], " ".join(args[1:])
+            sys.path.insert(0, "./plugins")
+            try:
+                mod = importlib.import_module(plugin_name)
+                rows = mod.search(query, limit=limit or 5)
+                out = json.dumps(rows, indent=2)
+            except Exception as e:
+                out = json.dumps({"error": str(e)})
     else:
-        out = json.dumps({"error": f"unknown command '{cmd}'. Use search|keyword|get|stats"})
+        out = json.dumps({"error": f"unknown command '{cmd}'. Use search|keyword|get|stats|source"})
     return out
 
 
@@ -149,13 +162,13 @@ def main():
     else:
         limit = None
     mod = _load_gateway_meta()
-    out = _run_backend(mod, cmd, args)
+    out = _run_backend(mod, cmd, args, limit)
     _pretty(out, limit)
 
 
-def _run_backend(mod, cmd, args):
+def _run_backend(mod, cmd, args, limit=None):
     import asyncio
-    return asyncio.run(_run(mod, cmd, args))
+    return asyncio.run(_run(mod, cmd, args, limit))
 
 
 if __name__ == "__main__":

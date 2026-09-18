@@ -25,6 +25,7 @@ import re
 import sys
 import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import config
@@ -42,9 +43,9 @@ RERANK_MODEL = config.get("rerank", "model")
 RERANK_TOP_N = config.get("rerank", "top_n")
 FTS_PREPASS_N = config.get("search", "fts_prepass_n")
 RERANK_THRESHOLD = config.get("rerank", "threshold")
-# Reranker backend selection: "nvidia" (Cohere-shape endpoint) or "typesafe"
-# (Jev System One). Overridable per call; config.yaml holds the default.
-RERANK_BACKEND = config.get("rerank", "backend", default="nvidia")
+# Reranker backend selection: "typesafe" (Jev System One, default) or "nvidia"
+# (Cohere-shape endpoint). Overridable per call; config.yaml holds the default.
+RERANK_BACKEND = config.get("rerank", "backend", default="typesafe")
 TS_URL = config.get("rerank", "typesafe_url", default="https://api.typesafe.ai/v1/systemone")
 TS_MODEL = config.get("rerank", "typesafe_model", default="jev-latest")
 TS_NOUL_THRESHOLD = config.get("rerank", "noul_threshold", default=0.3)
@@ -138,23 +139,28 @@ def _rerank_endpoint(query: str, documents: list[str]) -> list[float]:
 def _typesafe_scores(query: str, candidates: list[dict]) -> list[float]:
     """Score each candidate's relevance via Jev Noul judgments (0..1).
 
-    One systemone call per batch: the state carries the query plus the batch's
-    candidates, and each candidate gets its own Noul question referencing its
-    state path (`candidates[i]`). Questions evaluate in parallel and
-    independently (the documented speculative fan-out pattern), so a single
-    call scores a whole batch — far cheaper than one request per pair.
+    Batches of TS_BATCH candidates per systemone call: the state carries the
+    query plus that batch's candidates, and each candidate gets its own Noul
+    question referencing its state path (`candidates[i]`). Questions evaluate
+    in parallel and independently (the documented speculative fan-out
+    pattern), so one call scores a whole batch — far cheaper than one request
+    per pair. CAUTION (config.yaml): batch_size > 8 exhibits context bleed —
+    a candidate judged amid highly-relevant batch-mates can inherit their
+    relevance; keep TS_BATCH at the tested value.
 
-    Returns scores aligned with `candidates` order. Raises on failure — the
-    caller decides the fallback, same contract as _rerank_endpoint.
+    Batches are independent HTTP calls executed concurrently via threads;
+    order of results never depends on completion order. Returns scores
+    aligned with `candidates` order. Raises on failure — the caller decides
+    the fallback, same contract as _rerank_endpoint.
     """
     key = config.secret("TYPESAFE_API_KEY")
     if not key:
         raise RuntimeError("TYPESAFE_API_KEY not configured in apinav env")
     scores: list[float] = [0.0] * len(candidates)
     max_desc = config.get("embeddings", "max_desc_chars")
-    batch = TS_BATCH if TS_BATCH and TS_BATCH > 0 else 25
-    for start in range(0, len(candidates), batch):
-        chunk = candidates[start : start + batch]
+    batch = TS_BATCH if TS_BATCH and TS_BATCH > 0 else 8
+
+    def run_batch(start: int, chunk: list[dict]) -> None:
         # Structured state lets Jev see name and description as distinct
         # fields; question ids never reach the model, so each instruction
         # must carry its full meaning via the state path.
@@ -199,6 +205,16 @@ def _typesafe_scores(query: str, candidates: list[dict]) -> list[float]:
             a = answers.get(f"c{i}") or {}
             n = a.get("noul")
             scores[start + i] = float(n) if isinstance(n, (int, float)) else 0.0
+
+    starts = list(range(0, len(candidates), batch))
+    # Thread pool sized to the batch count but bounded: each thread holds one
+    # HTTP connection, so cap concurrency to avoid 429s on the shared key.
+    max_workers = min(len(starts), 8) or 1
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = [ex.submit(run_batch, s, candidates[s : s + batch]) for s in starts]
+        for f in futures:
+            # Propagate the first batch failure — _rerank falls back to nvidia.
+            f.result()
     return scores
 
 
@@ -449,8 +465,9 @@ async def apinav_keyword_search(query: str, limit: int = 10) -> str:
         "TRANSPARENTLY ALSO queries live catalog plugins in the background and merges "
         "the candidate pool before reranking (overlay only — "
         "novel results are persisted to the local catalog). limit: max results "
-        "(default 10). rerank_backend: optional reranker override — 'nvidia' "
-        "(default, cross-encoder) or 'typesafe' (Jev System One Noul judgments). "
+        "(default 10). rerank_backend: optional reranker override — 'typesafe' "
+        "(default, Jev System One calibrated judgments) or 'nvidia' (fast "
+        "cross-encoder). "
         "Returns the most semantically relevant APIs with name, "
         "category, pricing, and a similarity score. Use this for fuzzy/intent-"
         "based discovery; use apinav_keyword_search for exact words."

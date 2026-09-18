@@ -12,7 +12,7 @@ Usage:
   apinav stats                                              # catalog totals
   apinav source <plugin> "query"                          # test one plugin directly
 
-Rerankers (-r): nvidia (default, cross-encoder) | typesafe (Jev System One)
+Rerankers (-r): typesafe (default, Jev System One) | nvidia (cross-encoder)
 """
 import sys
 import json
@@ -168,7 +168,7 @@ def main():
             sys.exit(1)
         rerank_backend = argv[i + 1]
         if rerank_backend not in ("nvidia", "typesafe"):
-            print(f"ERROR: unknown reranker '{rerank_backend}'. Use nvidia | typesafe")
+            print(f"ERROR: unknown reranker '{rerank_backend}'. Use typesafe | nvidia")
             sys.exit(1)
         argv = argv[:i] + argv[i + 2 :]
     cmd, args = argv[0], argv[1:]

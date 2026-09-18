@@ -16,9 +16,11 @@ embeddings:
   max_desc_chars: 4000
 
 rerank:
-  # Backend selection: "nvidia" (Cohere-shape rerank endpoint, default) or
-  # "typesafe" (Jev System One: one Noul relevance judgment per candidate).
-  backend: nvidia
+  # Backend selection: "typesafe" (Jev System One: one Noul relevance judgment
+  # per candidate, batch of 8, parallel HTTP) or "nvidia" (Cohere-shape rerank
+  # endpoint). typesafe is default: 10-query A/B (2026-09-18) showed equal or
+  # better top-3 on 9/10, near-duplicate suppression, ~1.5s slower per search.
+  backend: typesafe
   url: https://openrouter.ai/api/v1/rerank
   model: nvidia/llama-nemotron-rerank-vl-1b-v2:free
   top_n: 100

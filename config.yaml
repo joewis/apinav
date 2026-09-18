@@ -16,10 +16,24 @@ embeddings:
   max_desc_chars: 4000
 
 rerank:
+  # Backend selection: "nvidia" (Cohere-shape rerank endpoint, default) or
+  # "typesafe" (Jev System One: one Noul relevance judgment per candidate).
+  backend: nvidia
   url: https://openrouter.ai/api/v1/rerank
   model: nvidia/llama-nemotron-rerank-vl-1b-v2:free
   top_n: 100
   threshold: 0.02
+  # TypeSafe (Jev) reranker settings. noul_threshold filters candidates below
+  # the yes-probability; batch_size = candidates per systemone call. CAUTION:
+  # large batches (25) exhibit context bleed — a candidate judged next to
+  # highly-relevant batch-mates can inherit their relevance (measured: an
+  # irrelevant access-control API scored 0.92 for a gold-prices query at
+  # batch 25, 0.02 at batch 8). 8 is the tested-safe value; raising it needs
+  # re-validation against a mixed-relevance pool.
+  typesafe_url: https://api.typesafe.ai/v1/systemone
+  typesafe_model: jev-latest
+  noul_threshold: 0.3
+  batch_size: 8
 
 search:
   fts_prepass_n: 30

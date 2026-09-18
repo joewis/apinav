@@ -42,6 +42,13 @@ RERANK_MODEL = config.get("rerank", "model")
 RERANK_TOP_N = config.get("rerank", "top_n")
 FTS_PREPASS_N = config.get("search", "fts_prepass_n")
 RERANK_THRESHOLD = config.get("rerank", "threshold")
+# Reranker backend selection: "nvidia" (Cohere-shape endpoint) or "typesafe"
+# (Jev System One). Overridable per call; config.yaml holds the default.
+RERANK_BACKEND = config.get("rerank", "backend", default="nvidia")
+TS_URL = config.get("rerank", "typesafe_url", default="https://api.typesafe.ai/v1/systemone")
+TS_MODEL = config.get("rerank", "typesafe_model", default="jev-latest")
+TS_NOUL_THRESHOLD = config.get("rerank", "noul_threshold", default=0.3)
+TS_BATCH = config.get("rerank", "batch_size", default=25)
 
 
 # --- Near-duplicate suppression ------------------------------------------------
@@ -128,7 +135,74 @@ def _rerank_endpoint(query: str, documents: list[str]) -> list[float]:
     return scores
 
 
-def _rerank(query: str, candidates: list[dict]) -> list[dict]:
+def _typesafe_scores(query: str, candidates: list[dict]) -> list[float]:
+    """Score each candidate's relevance via Jev Noul judgments (0..1).
+
+    One systemone call per batch: the state carries the query plus the batch's
+    candidates, and each candidate gets its own Noul question referencing its
+    state path (`candidates[i]`). Questions evaluate in parallel and
+    independently (the documented speculative fan-out pattern), so a single
+    call scores a whole batch — far cheaper than one request per pair.
+
+    Returns scores aligned with `candidates` order. Raises on failure — the
+    caller decides the fallback, same contract as _rerank_endpoint.
+    """
+    key = config.secret("TYPESAFE_API_KEY")
+    if not key:
+        raise RuntimeError("TYPESAFE_API_KEY not configured in apinav env")
+    scores: list[float] = [0.0] * len(candidates)
+    max_desc = config.get("embeddings", "max_desc_chars")
+    batch = TS_BATCH if TS_BATCH and TS_BATCH > 0 else 25
+    for start in range(0, len(candidates), batch):
+        chunk = candidates[start : start + batch]
+        # Structured state lets Jev see name and description as distinct
+        # fields; question ids never reach the model, so each instruction
+        # must carry its full meaning via the state path.
+        state_candidates = [
+            {
+                "name": _strip_tags(c.get("name") or ""),
+                "description": _strip_tags(c.get("description") or "")[:max_desc],
+            }
+            for c in chunk
+        ]
+        questions = {}
+        for i in range(len(chunk)):
+            questions[f"c{i}"] = {
+                "type": "noul",
+                "instructions": (
+                    f"Could the API documented in `candidates[{i}]` directly serve "
+                    f"the need expressed in `query`? Judge that candidate on its "
+                    f"own core purpose, not merely a shared topic."
+                ),
+                "criteria": {
+                    "true": "The candidate's core purpose matches the queried need.",
+                    "false": "The candidate is at best on a related topic; its core purpose differs.",
+                },
+            }
+        body = json.dumps({
+            "model": TS_MODEL,
+            "state": {"query": query, "candidates": state_candidates},
+            "questions": questions,
+        }).encode()
+        req = urllib.request.Request(
+            TS_URL,
+            data=body,
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=120) as r:
+            data = json.loads(r.read())
+        answers = data.get("answers") or {}
+        for i in range(len(chunk)):
+            a = answers.get(f"c{i}") or {}
+            n = a.get("noul")
+            scores[start + i] = float(n) if isinstance(n, (int, float)) else 0.0
+    return scores
+
+
+def _rerank(query: str, candidates: list[dict], backend: str | None = None) -> list[dict]:
     """Rerank candidate API summaries by cross-encoder relevance.
 
     Runs over the MERGED pool (local cosine + FTS + live plugins) so all
@@ -136,10 +210,16 @@ def _rerank(query: str, candidates: list[dict]) -> list[dict]:
     being appended unranked to the tail. Falls back to the input (cosine)
     order if the endpoint errors or returns a mismatched score count —
     the caller never fails on a rerank hiccup.
+
+    backend: "nvidia" (Cohere-shape rerank endpoint) or "typesafe" (Jev Noul
+    per candidate). None uses the configured default (rerank.backend).
+    A failed typesafe run falls back to nvidia before giving up entirely,
+    because the Jev path is newer and less battle-tested here.
     """
     if not candidates:
         return candidates
     # Dedup before reranking so a clone can't crowd out real distinct rows.
+    max_desc = config.get("embeddings", "max_desc_chars")
     seen = set()
     deduped = []
     for c in candidates:
@@ -157,15 +237,31 @@ def _rerank(query: str, candidates: list[dict]) -> list[dict]:
         # Reuse the shared max_desc_chars from config so huge descriptions
         # (e.g. APIs.guru specs at 250KB) don't bloat the re-ranker payload;
         # the same limit also guards embed_matrix._api_text.
-        max_desc = config.get("embeddings", "max_desc_chars")
         desc = _strip_tags(c.get("description") or "")[:max_desc]
         documents.append(f"{name} | {cat} | {desc}")
     scores = None
+    chosen = (backend or RERANK_BACKEND or "nvidia").lower()
     threshold = RERANK_THRESHOLD
     try:
+        if chosen == "typesafe":
+            # Noul is a yes-probability, not a similarity — a different scale,
+            # hence the dedicated noul_threshold instead of the 0.02 default.
+            threshold = TS_NOUL_THRESHOLD
+            scores = _typesafe_scores(query, candidates)
+        else:
+            scores = _rerank_endpoint(query, documents)
+    except Exception as e:
+        if chosen != "typesafe":
+            raise
+        # Jev path failed: degrade to the proven NVIDIA backend rather than
+        # dropping the whole rerank step.
+        import logging
+        logging.getLogger(__name__).warning(
+            "typesafe rerank failed: %s %s, falling back to nvidia",
+            type(e).__name__, e,
+        )
         scores = _rerank_endpoint(query, documents)
-    except Exception:
-        return candidates
+        threshold = RERANK_THRESHOLD
     if scores is None or len(scores) != len(candidates):
         return candidates
     for c, score in zip(candidates, scores):
@@ -351,14 +447,16 @@ async def apinav_keyword_search(query: str, limit: int = 10) -> str:
         "prices' or 'an API to send SMS'. Embeds the query with NVIDIA "
         "nemotron-3-embed-1b and ranks stored vectors by cosine similarity. "
         "TRANSPARENTLY ALSO queries live catalog plugins in the background and merges "
-        "the live results into the candidate pool before reranking (overlay only — "
+        "the candidate pool before reranking (overlay only — "
         "novel results are persisted to the local catalog). limit: max results "
-        "(default 10). Returns the most semantically relevant APIs with name, "
+        "(default 10). rerank_backend: optional reranker override — 'nvidia' "
+        "(default, cross-encoder) or 'typesafe' (Jev System One Noul judgments). "
+        "Returns the most semantically relevant APIs with name, "
         "category, pricing, and a similarity score. Use this for fuzzy/intent-"
         "based discovery; use apinav_keyword_search for exact words."
     ),
 )
-async def apinav_semantic_search(query: str, limit: int = 10) -> str:
+async def apinav_semantic_search(query: str, limit: int = 10, rerank_backend: str | None = None) -> str:
     try:
         t_start = time.time()
         qvec = _embed_query(query)
@@ -502,8 +600,9 @@ async def apinav_semantic_search(query: str, limit: int = 10) -> str:
         # Rerank the merged candidate pool with cross-encoder.
         t_merge_done = time.time()
         reranked = False
+        backend_used = (rerank_backend or RERANK_BACKEND or "nvidia").lower()
         try:
-            candidates = _rerank(query, candidates)
+            candidates = _rerank(query, candidates, backend=rerank_backend)
             reranked = True
         except Exception as e:
             import logging
@@ -518,6 +617,7 @@ async def apinav_semantic_search(query: str, limit: int = 10) -> str:
         return json.dumps({
             "results": out,
             "reranked": reranked,
+            "rerank_backend": backend_used if reranked else None,
             "live_merged": live_merged,
             "persisted": persisted,
             "timing_ms": {

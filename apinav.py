@@ -6,10 +6,13 @@ its tools directly, skipping the network for a snappy CLI.
 
 Usage:
   apinav search "find me an API for gold prices"            # semantic (default)
+  apinav search -r typesafe "find me an API for gold prices"  # pick reranker
   apinav keyword "weather"                                  # FTS5 keyword search
   apinav get adyen.com:AccountService                       # full record incl. links
   apinav stats                                              # catalog totals
   apinav source <plugin> "query"                          # test one plugin directly
+
+Rerankers (-r): nvidia (default, cross-encoder) | typesafe (Jev System One)
 """
 import sys
 import json
@@ -27,9 +30,9 @@ def _load_gateway_meta():
     return mod
 
 
-async def _run(mod, cmd, args, limit=None):
+async def _run(mod, cmd, args, limit=None, rerank_backend=None):
     if cmd == "search":
-        out = await mod.apinav_semantic_search(args[0])
+        out = await mod.apinav_semantic_search(args[0], rerank_backend=rerank_backend)
     elif cmd == "keyword":
         out = await mod.apinav_keyword_search(args[0])
     elif cmd == "get":
@@ -155,6 +158,19 @@ def main():
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
         return
+    # -r <backend> selects the reranker for search; position-independent so it
+    # composes with the trailing-N limit shorthand (e.g. search -r typesafe q 3).
+    rerank_backend = None
+    if "-r" in argv:
+        i = argv.index("-r")
+        if i + 1 >= len(argv):
+            print("ERROR: -r requires a backend: nvidia | typesafe")
+            sys.exit(1)
+        rerank_backend = argv[i + 1]
+        if rerank_backend not in ("nvidia", "typesafe"):
+            print(f"ERROR: unknown reranker '{rerank_backend}'. Use nvidia | typesafe")
+            sys.exit(1)
+        argv = argv[:i] + argv[i + 2 :]
     cmd, args = argv[0], argv[1:]
     if cmd == "search" and len(args) > 1 and args[-1].isdigit():
         limit = int(args[-1])
@@ -162,13 +178,13 @@ def main():
     else:
         limit = None
     mod = _load_gateway_meta()
-    out = _run_backend(mod, cmd, args, limit)
+    out = _run_backend(mod, cmd, args, limit, rerank_backend)
     _pretty(out, limit)
 
 
-def _run_backend(mod, cmd, args, limit=None):
+def _run_backend(mod, cmd, args, limit=None, rerank_backend=None):
     import asyncio
-    return asyncio.run(_run(mod, cmd, args, limit))
+    return asyncio.run(_run(mod, cmd, args, limit, rerank_backend))
 
 
 if __name__ == "__main__":

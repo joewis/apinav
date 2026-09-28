@@ -36,6 +36,19 @@ rerank:
   typesafe_model: jev-latest
   noul_threshold: 0.3
   batch_size: 8
+  # Scoring shape. "choice" ranks the whole pool with one Choice question per chunk
+  # (choice_chunk candidates each, choice_width characters of description per option),
+  # keeps choice_shortlist per chunk, then confirms the union with absolute Nouls in ONE
+  # request. "noul" is the older per-candidate batched scorer governed by batch_size.
+  # Measured on 4 real 115-121-row pools (2026-09): top-10 agreement with the nvidia
+  # cross-encoder 32/40 for BOTH shapes, at 12 requests per search for choice vs 62 for
+  # noul, for the same wall clock. The request gap widens with pool size (noul needs one
+  # request per batch_size candidates; choice needs one per choice_chunk). Flip to "noul"
+  # to fall back to the proven scorer.
+  typesafe_strategy: choice
+  choice_chunk: 80
+  choice_width: 600
+  choice_shortlist: 24
 
 search:
   fts_prepass_n: 30

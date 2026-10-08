@@ -2,6 +2,17 @@
 
 Reads config.yaml once at import. All modules import settings from here
 instead of keeping hard-coded values.
+
+Two kinds of path are kept strictly apart:
+
+  * CODE  (this directory) — shipped by the package, root-owned and read-only
+    to the account that runs the tool. APINAV_DIR.
+  * STATE (the catalog, the embedding matrix) — written at runtime by whatever
+    account runs the tool. STATE_DIR, resolved from the environment so a
+    service account can point it at its own writable tree.
+
+Keeping them apart matters: if state lived beside the code in a directory the
+service account can write, that account could rewrite the program it runs.
 """
 import os
 from pathlib import Path
@@ -28,10 +39,44 @@ def get(*keys, default=None):
     return default if d is None else d
 
 
-# Convenience paths
-APINAV_DIR = Path(get("paths", "apinav_dir", default="/opt/mcp/apinav"))
-ENV_FILE = Path(get("paths", "env_file", default="/opt/mcp/apinav/.env"))
-DB_PATH = Path(get("paths", "db", default="/opt/mcp/apinav/catalog.db"))
+# --- Paths ------------------------------------------------------------------
+
+# Where the code lives (this file's directory's configured home).
+APINAV_DIR = Path(get("paths", "apinav_dir", default=str(Path(__file__).parent)))
+
+
+def _default_state_dir() -> Path:
+    """Writable state location when the environment says nothing.
+
+    APINAV_STATE_DIR wins so a service can be pointed at its own tree;
+    otherwise the XDG state directory, which is correct for interactive use
+    and never inside the (read-only) code tree.
+    """
+    env = os.environ.get("APINAV_STATE_DIR")
+    if env:
+        return Path(env)
+    xdg = os.environ.get("XDG_STATE_HOME")
+    base = Path(xdg) if xdg else Path.home() / ".local" / "state"
+    return base / "apinav"
+
+
+STATE_DIR = Path(get("paths", "state_dir", default=str(_default_state_dir())))
+
+# The catalog and the embedding cache are state, not shipped content: the
+# package installs code only, and these are rebuilt/regrown in place.
+DB_PATH = Path(
+    os.environ.get("APINAV_DB_PATH")
+    or get("paths", "db")
+    or str(STATE_DIR / "catalog.db")
+)
+
+# Dotenv fallback for interactive use. Normally absent under the service
+# account, where credentials arrive by injection instead.
+ENV_FILE = Path(
+    os.environ.get("APINAV_ENV_FILE")
+    or get("paths", "env_file")
+    or str(Path(__file__).with_name(".env"))
+)
 
 # --- Secrets ---------------------------------------------------------------
 # Resolution order is fixed, and mirrors the gateway's shared secret_source
@@ -42,9 +87,7 @@ DB_PATH = Path(get("paths", "db", default="/opt/mcp/apinav/catalog.db"))
 #   2. the dotenv file at ENV_FILE, if it exists
 #
 # The file is consulted only when the environment is silent, so a value the
-# gateway supplied always wins. Under the service account the file is normally
-# absent, which is the intended end state: credentials arrive by injection.
-# The file remains useful for interactive use by the operator.
+# gateway supplied always wins.
 #
 # Callers use provider-agnostic names (EMBEDDING_API_KEY, RERANK_API_KEY) while
 # the environment and the dotenv file use the provider's own name

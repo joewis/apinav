@@ -1,10 +1,12 @@
 # Central configuration for apinav.
-# Paths here are absolute because this runs on a specific home-lab host.
+# Paths are deliberately NOT pinned here: the code directory is shipped by the
+# package (read-only), while the catalog and the embedding cache are runtime
+# state and must be writable by whichever account runs the tool. State is
+# resolved by config.py from APINAV_STATE_DIR (set for the service account) or
+# the XDG state directory, so no absolute operator path is baked in.
 
 paths:
   apinav_dir: /opt/mcp/apinav
-  env_file: /opt/mcp/apinav/.env
-  db: /opt/mcp/apinav/catalog.db
 
 embeddings:
   url: https://integrate.api.nvidia.com/v1/embeddings

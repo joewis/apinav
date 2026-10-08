@@ -26,8 +26,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import config
 import schema
 
-MATRIX_PATH = str(config.APINAV_DIR / "embed_matrix.npy")
-IDS_PATH = str(config.APINAV_DIR / "embed_ids.json")
+# The matrix and the id list are runtime state, not shipped code: they must be
+# writable by whichever account runs the tool, while APINAV_DIR is root-owned
+# once the code is packaged. Keeping them in the code directory also meant the
+# account that runs the tool could rewrite files beside the program.
+MATRIX_PATH = str(config.STATE_DIR / "embed_matrix.npy")
+IDS_PATH = str(config.STATE_DIR / "embed_ids.json")
 
 EMBED_URL = config.get("embeddings", "url")
 EMBED_MODEL = config.get("embeddings", "model")

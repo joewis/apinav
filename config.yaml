@@ -2,9 +2,9 @@
 # Paths here are absolute because this runs on a specific home-lab host.
 
 paths:
-  apinav_dir: /home/carl/apinav
-  env_file: /home/carl/apinav/.env
-  db: /home/carl/apinav/catalog.db
+  apinav_dir: /opt/mcp/apinav
+  env_file: /opt/mcp/apinav/.env
+  db: /opt/mcp/apinav/catalog.db
 
 embeddings:
   url: https://integrate.api.nvidia.com/v1/embeddings

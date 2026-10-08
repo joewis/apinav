@@ -1,4 +1,4 @@
-#!/home/carl/mcp-gateway-venv/bin/python
+#!/opt/mcp/venv/bin/python
 """MCP server exposing the local multi-source API catalog index.
 
 Sources come from two paths that converge in apinav_semantic_search:

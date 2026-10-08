@@ -1,4 +1,4 @@
-#!/home/carl/mcp-gateway-venv/bin/python
+#!/opt/mcp/venv/bin/python
 """Command-line search against the local API catalog.
 
 Loads the MCP server module in-process (same code the gateway runs) and calls
